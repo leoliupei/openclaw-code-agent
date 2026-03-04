@@ -12,13 +12,17 @@ export interface OpenClawPluginToolContext {
   sandboxed?: boolean;
 }
 
+/** Runtime lifecycle state for a session. */
 export type SessionStatus = "starting" | "running" | "completed" | "failed" | "killed";
 
+/** Terminal reason used for lifecycle messaging and auto-resume policy. */
 export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "done" | "unknown";
 
+/** Unified permission modes exposed by tools/commands across harnesses. */
 export type PermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
 export type ReasoningEffort = "low" | "medium" | "high";
 
+/** Session creation options used by SessionManager.spawn(). */
 export interface SessionConfig {
   prompt: string;
   workdir: string;
@@ -42,8 +46,10 @@ export interface SessionConfig {
   notifyOnTurnEnd?: boolean;
 }
 
+/** Plan-approval policy for orchestrator wake flows. */
 export type PlanApprovalMode = "approve" | "ask" | "delegate";
 
+/** Plugin-level configuration loaded from openclaw config schema. */
 export interface PluginConfig {
   maxSessions: number;
   defaultModel?: string;
@@ -61,6 +67,7 @@ export interface PluginConfig {
   defaultHarness?: string;
 }
 
+/** Persisted session metadata retained for resume/list/output after GC/restart. */
 export interface PersistedSessionInfo {
   sessionId?: string;
   harnessSessionId: string;
@@ -80,6 +87,7 @@ export interface PersistedSessionInfo {
   harness?: string;
 }
 
+/** In-memory usage metrics shown by `agent_stats`. */
 export interface SessionMetrics {
   totalCostUsd: number;
   costPerDay: Map<string, number>;

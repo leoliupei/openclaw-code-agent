@@ -22,7 +22,8 @@ User (Telegram/Discord) → OpenClaw Gateway → Agent → Plugin Tools → Codi
 ### 2. SessionManager (`src/session-manager.ts`)
 - Manages lifecycle of coding agent processes (spawn, track, kill, resume)
 - Enforces `maxSessions` concurrent limit
-- Persists sessions to disk at `~/.openclaw/code-agent-sessions.json` for crash/restart recovery
+- Persists sessions to disk for crash/restart recovery
+  - Path precedence: `OPENCLAW_CODE_AGENT_SESSIONS_PATH` → `$OPENCLAW_HOME/code-agent-sessions.json` → `~/.openclaw/code-agent-sessions.json`
 - Writes a stub on first `"running"` transition (captures harness, workdir, model before session completes)
 - Atomic writes (`.tmp` → rename) prevent corrupt JSON on kill mid-write
 - Sessions in `"running"` state at load time are marked `"killed"` (process died before they could complete)
@@ -92,21 +93,20 @@ Agent calls agent_launch → tool validates params → SessionManager.spawn()
   → SessionManager subscribes to session events
 ```
 
-### Waiting for Input (Wake) — Two-Tier Mechanism
+### Waiting for Input (Wake) — Primary + Fallback
 ```
 Session detects end-of-turn idle
   → Session emits "turnEnd" event with hadQuestion=true
   → SessionManager triggers wake event
 
-Wake tier 1 — Primary (spawn detached):
+Primary wake path:
   → openclaw agent --agent <id> --message <text> --deliver
-  → Spawns detached process → delivers message directly
-  → Independent of heartbeat configuration
+  → WakeDispatcher retries once on failure
 
-Wake tier 2 — Fallback (system event, requires heartbeat):
+Fallback path (missing originAgentId):
   → openclaw system event --mode now
-  → Triggers immediate heartbeat with reason="wake"
-  → Only used when originAgentId is missing
+  → WakeDispatcher retries once on failure
+  → Direct Telegram delivery is used so the user still receives a signal
 
   → Orchestrator agent wakes up, reads output, forwards to user
 ```
@@ -118,7 +118,7 @@ Turn completes without a question → session.complete("done") immediately
   → No 💤 notification (🔄 Turn done already sent)
 
 On next agent_respond:
-  → actions/respond.ts detects killed + "done" killReason + harnessSessionId
+  → actions/respond.ts detects terminal status + auto-resume reason + harnessSessionId
   → Auto-spawns new session with same harnessSessionId silently
   → Conversation context preserved
 
@@ -135,9 +135,10 @@ After `sessionGcAgeMinutes` (default: 1440 / 24h):
 ### Session Completion
 ```
 Coding agent process exits
-  → Session status → completed/failed
-  → System event broadcast
-  → Orchestrator agent retrieves output, summarizes to user
+  → Session status → completed/failed/killed
+  → SessionManager persists metadata/output snapshot
+  → WakeDispatcher notifies orchestrator (or direct channel fallback)
+  → Orchestrator retrieves output, summarizes to user
 ```
 
 ## Plan Approval Modes
@@ -156,10 +157,10 @@ Controls how the orchestrator handles plans when a coding agent calls `ExitPlanM
 ## Key Design Decisions
 
 1. **CLI for outbound messages** — No runtime API for sending messages; uses `openclaw message send` subprocess
-2. **Two-tier wake** — Primary: detached spawn `openclaw agent --message --deliver` (no heartbeat dependency). Fallback: `openclaw system event --mode now` (requires heartbeat)
+2. **Wake routing with retry** — Primary path wakes the originating agent via `openclaw agent --deliver`; fallback path uses `openclaw system event` only when origin agent metadata is unavailable
 3. **EventEmitter over callbacks** — Session extends EventEmitter; SessionManager subscribes to events instead of wiring 6 optional callback properties
 4. **State machine** — `TRANSITIONS` map validates all status changes; invalid transitions throw
-5. **Kill+resume, no hibernation** — No intermediate "hibernated" state. Sessions are killed, then auto-resumed on next respond if they have a valid harnessSessionId
+5. **Done+resume (no hibernation state)** — Non-question turn completion is represented as `complete("done")`; next respond auto-resumes from persisted harness session id
 6. **Shared respond action** — `actions/respond.ts` centralizes auto-resume, permission switch, and auto-respond cap logic for both tool and command callers
 7. **maxAutoResponds limit** — Prevents infinite agent loops; resets on user interaction (`userInitiated: true`)
 8. **Channel propagation** — `resolveToolChannel()` in `config.ts` handles channel resolution once per tool call, replacing 7 duplicated blocks

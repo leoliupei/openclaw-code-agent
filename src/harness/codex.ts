@@ -285,6 +285,7 @@ export class CodexHarness implements AgentHarness {
         }
 
         heartbeatTimer = setInterval(() => {
+          // Keepalive so Session idle timers don't kill long silent turns.
           enqueue({ type: "activity" });
         }, heartbeatMs);
 
@@ -408,6 +409,8 @@ export class CodexHarness implements AgentHarness {
 
       async setPermissionMode(mode: string): Promise<void> {
         effectivePermissionMode = mode;
+        // Codex SDK thread options are immutable after creation. Recreate the
+        // thread lazily before the next turn (same session id via resumeThread).
         pendingThreadRecreate = true;
       },
 
