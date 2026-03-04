@@ -15,6 +15,15 @@
         "type": "string",
         "description": "Default model for new sessions (e.g. 'sonnet', 'opus')"
       },
+      "model": {
+        "type": "string",
+        "description": "Override model for all Codex sessions (e.g. 'gpt-5.3-codex', 'gpt-5.4'). Falls back to agent model config if not set."
+      },
+      "reasoningEffort": {
+        "type": "string",
+        "enum": ["low", "medium", "high"],
+        "description": "Reasoning effort for Codex sessions. 'high' for complex tasks, 'medium' (default) for balance, 'low' for speed."
+      },
       "defaultWorkdir": {
         "type": "string",
         "description": "Default working directory for new sessions"
@@ -23,6 +32,11 @@
         "type": "number",
         "default": 15,
         "description": "Idle timeout in minutes for multi-turn sessions before auto-kill"
+      },
+      "sessionGcAgeMinutes": {
+        "type": "number",
+        "default": 1440,
+        "description": "TTL in minutes before terminal runtime sessions are evicted from memory (persisted metadata remains resumable)."
       },
       "maxPersistedSessions": {
         "type": "number",

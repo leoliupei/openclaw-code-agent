@@ -7,7 +7,7 @@ An [OpenClaw](https://openclaw.com) plugin that lets AI agents orchestrate codin
 | Agent | Status | Notes |
 |-------|--------|-------|
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | ✅ Supported | Full support via `@anthropic-ai/claude-agent-sdk` |
-| [Codex](https://github.com/openai/codex) | 🚧 Planned | — |
+| [Codex](https://github.com/openai/codex) | ✅ Supported | Full support via `@openai/codex-sdk` thread API |
 | Other agents | 🚧 Planned | Plugin architecture supports adding new harnesses |
 
 > **vs. built-in ACP?** See [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md) for a full breakdown.
@@ -17,16 +17,20 @@ An [OpenClaw](https://openclaw.com) plugin that lets AI agents orchestrate codin
 ## Features
 
 - **Multi-session management** — Run multiple concurrent coding agent sessions, each with a unique ID and human-readable name
-- **Plan → Execute workflow** — Sessions start in plan mode; approve the plan and the session auto-switches to full implementation mode
+- **Plan → Execute workflow** — Claude Code sessions expose plan mode; Codex uses a soft first-turn planning prompt while staying externally in implement mode
 - **Thread-based routing** — Notifications go to the Telegram thread/topic where the session was launched
-- **Idle-kill + auto-resume** — Sessions auto-complete after idle timeout, then seamlessly auto-resume with full conversation context on next message
-- **Smart question detection** — Only notifies when the agent actually asks a question, not on every turn end
+- **Pause + auto-resume** — Non-question turn completion pauses sessions (`done`) and next `agent_respond` auto-resumes with context intact
+- **Turn-end wake signaling** — Every turn end emits a deterministic wake signal with output preview and waiting hint
+- **Smart waiting detection** — Heuristic waiting detector reduces false-positive wake escalations
 - **Multi-turn conversations** — Send follow-up messages, interrupt, or iterate with a running agent
 - **Session resume & fork** — Resume any completed session or fork it into a new conversation branch
+- **Merged session listing** — `agent_sessions` shows active + persisted sessions in one view (deduped by internal session ID)
+- **Pending MessageStream safety** — queued follow-ups are preserved across turn completion so messages are not dropped
+- **Codex SDK streaming harness** — uses `@openai/codex-sdk` thread streaming with soft first-turn planning, waiting detection, and activity heartbeats
 - **Multi-agent support** — Route notifications to the correct agent/chat via workspace-based channel mapping
 - **Auto-respond rules** — Orchestrator auto-handles permission requests and confirmations; forwards real decisions to you
 - **Anti-cascade protection** — Orchestrator never launches new sessions from wake events
-- **Automatic cleanup** — Completed sessions garbage-collected after 1 hour; IDs persist for resume
+- **Automatic cleanup** — Completed sessions are garbage-collected after a configurable TTL (`sessionGcAgeMinutes`, default 24h); IDs persist for resume
 - **Harness-agnostic architecture** — Pluggable `AgentHarness` interface allows adding new coding agent backends
 
 ---
@@ -56,9 +60,9 @@ Replace `my-bot` with your Telegram bot account name and `123456789` with your T
 ### 3. Typical workflow
 
 1. Ask your agent: *"Fix the bug in auth.ts"*
-2. A coding agent session launches in **plan mode** — the agent explores and proposes a plan
+2. A coding agent session launches and explores the task. Claude Code exposes **plan mode**; Codex can do a plan-first turn without surfacing plan mode in session status
 3. The agent's questions and plan appear in the **same Telegram thread** where you launched
-4. Reply with "looks good" or "go ahead" — the session **auto-switches to implement mode**
+4. When a session is awaiting plan approval, approve it with `agent_respond(..., approve=true)` and the session switches to implement mode
 5. The agent implements with full permissions, then you get a brief completion summary
 
 ---
@@ -74,7 +78,9 @@ Replace `my-bot` with your Telegram bot account name and `123456789` with your T
 | `agent_sessions` | List all sessions with status and progress |
 | `agent_stats` | Show usage metrics (counts, durations, costs) |
 
-All tools are also available as **chat commands** (`/agent`, `/agent_respond`, `/agent_kill`, `/agent_sessions`, `/agent_resume`, `/agent_stats`).
+Core orchestration workflows use `agent_launch`, `agent_respond`, `agent_output`, `agent_sessions`, and `agent_kill`.
+
+All tools are also available as **chat commands** (`/agent`, `/agent_respond`, `/agent_kill`, `/agent_sessions`, `/agent_resume`, `/agent_stats`, `/agent_output`).
 
 ---
 
@@ -92,8 +98,8 @@ All tools are also available as **chat commands** (`/agent`, `/agent_respond`, `
 /agent_respond fix-auth Also add unit tests
 /agent_respond --interrupt fix-auth Stop that and do this instead
 
-# Approve a plan (auto-switches to implement mode)
-/agent_respond fix-auth looks good
+# Approve a pending plan (tool call)
+agent_respond(session='fix-auth', message='Approved. Go ahead.', approve=true)
 
 # Lifecycle management
 /agent_kill fix-auth
@@ -113,7 +119,7 @@ The plugin sends targeted notifications to the originating Telegram thread:
 | 🚀 | Launched | Session started with prompt summary |
 | 🔔 | Agent asks | Session is waiting for user input |
 | 📋 | Plan ready | Plan approval requested — reply "go" to approve |
-| 🔄 | Turn done | Turn completed, session still running |
+| 🔄 | Turn done | Turn completed, session paused (auto-resumable) |
 | ✅ | Completed | Completion summary with cost and duration |
 | ❌ | Failed | Error notification with hint |
 | ⛔ | Killed | Session terminated with kill reason |
@@ -123,11 +129,10 @@ The plugin sends targeted notifications to the originating Telegram thread:
 
 ## Plan → Execute Mode Switch
 
-Sessions start in `plan` mode by default. When you reply with an approval keyword (case-insensitive), the session automatically switches to `bypassPermissions` mode:
+- **Claude Code** starts in `plan` mode by default. Approve a pending plan with `agent_respond(..., approve=true)` and the session switches to `bypassPermissions`.
+- **Codex** does not surface `plan` or `awaiting-plan-approval` in session state. When launched with `permissionMode: "plan"`, its first turn is prompted to return a plan and ask whether to proceed, while the exposed session phase remains implementation-oriented.
 
-> `go ahead`, `implement`, `looks good`, `approved`, `lgtm`, `do it`, `proceed`, `execute`, `ship it`
-
-The switch prepends a system instruction telling the agent to exit plan mode and implement with full permissions. No manual mode switching needed.
+On approval, the plugin prepends a system instruction telling the agent to exit plan mode and implement with full permissions.
 
 ---
 
@@ -161,18 +166,48 @@ Set values in `~/.openclaw/openclaw.json` under `plugins.config["openclaw-code-a
 | `maxSessions` | `number` | `5` | Maximum concurrent sessions |
 | `maxAutoResponds` | `number` | `10` | Max consecutive auto-responds before requiring user input |
 | `permissionMode` | `string` | `"plan"` | `"default"` / `"plan"` / `"acceptEdits"` / `"bypassPermissions"` |
-| `idleTimeoutMinutes` | `number` | `30` | Idle timeout before auto-kill |
-| `postTurnIdleMinutes` | `number` | `5` | Minutes after turn completes before session auto-completes |
+| `idleTimeoutMinutes` | `number` | `15` | Idle timeout before auto-kill |
+| `sessionGcAgeMinutes` | `number` | `1440` | TTL for completed/failed/killed runtime sessions before GC eviction |
 | `maxPersistedSessions` | `number` | `50` | Max completed sessions kept for resume |
 | `planApproval` | `string` | `"delegate"` | `"approve"` (orchestrator can auto-approve) / `"ask"` (always forward to user) / `"delegate"` (orchestrator decides) |
+| `defaultHarness` | `string` | `"claude-code"` | Default harness for new sessions (`"claude-code"` / `"codex"`) |
+| `model` | `string` | — | Codex-only model override for new sessions (for example `"gpt-5.3-codex"`). Used when no explicit `model` is passed to `agent_launch`; falls back to `defaultModel` if unset |
+| `reasoningEffort` | `string` | `"medium"` | Codex-only reasoning effort: `"low"`, `"medium"`, or `"high"` |
 | `defaultModel` | `string` | — | Default model for new sessions (e.g. `"sonnet"`, `"opus"`) |
 | `defaultWorkdir` | `string` | — | Default working directory for new sessions |
+
+### Permission Mode Mapping By Harness
+
+Permission modes are shared at the plugin API, but each harness maps them differently:
+
+- **Claude Code harness**
+  - `default`, `plan`, `acceptEdits`, `bypassPermissions` are passed through the SDK
+- **Codex harness**
+  - Always runs with SDK thread options `sandboxMode: "danger-full-access"` and `approvalPolicy: "never"`
+  - Supports plugin config `model` and `reasoningEffort` defaults for Codex SDK thread launches
+  - In `bypassPermissions`, the harness adds filesystem root (`/` on POSIX) to Codex `additionalDirectories`, plus optional extras from `OPENCLAW_CODEX_BYPASS_ADDITIONAL_DIRS` (comma-separated)
+  - `setPermissionMode()` is applied by recreating the thread on the next turn via `resumeThread` (same thread ID)
+  - `plan` / `acceptEdits` remain behavioral orchestration constraints (planning/approval flow), not sandbox restrictions
+
+### `notify_on_turn_end` (`notifyOnTurnEnd`)
+
+`agent_launch` accepts `notify_on_turn_end` (default `true`). When `false`, turn-end wake notifications are suppressed for that session.  
+Internal config field: `notifyOnTurnEnd`.
+
+### Session Lifecycle + GC
+
+- Active sessions live in runtime memory (`SessionManager.sessions`)
+- Terminal sessions are persisted with metadata/output stubs for resume and listing
+- Runtime records are evicted after `sessionGcAgeMinutes` (default 1440 / 24h)
+- Eviction means **removed from runtime cache**, not deleted permanently; persisted session records remain resumable
 
 ### Example
 
 ```json
 {
   "maxSessions": 3,
+  "model": "gpt-5.3-codex",
+  "reasoningEffort": "high",
   "defaultModel": "sonnet",
   "permissionMode": "plan",
   "fallbackChannel": "telegram|my-bot|123456789",
@@ -249,16 +284,16 @@ For a detailed look at how the plugin works internally, see the [docs/](docs/) d
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build (esbuild → dist/index.js)
-npm run build
+pnpm run build
 
 # Type-check
-npx tsc --noEmit
+pnpm run typecheck
 
 # Run tests
-npm test
+pnpm test
 ```
 
 ### Project Structure
@@ -271,6 +306,7 @@ openclaw-code-agent/
 │   ├── harness/                # Agent harness abstraction layer
 │   │   ├── types.ts            # AgentHarness interface & message types
 │   │   ├── claude-code.ts      # Claude Code harness (SDK wrapper)
+│   │   ├── codex.ts            # Codex harness (@openai/codex-sdk thread stream wrapper)
 │   │   └── index.ts            # Harness registry
 │   ├── types.ts                # TypeScript interfaces
 │   ├── config.ts               # Config singleton + channel resolution
@@ -278,10 +314,14 @@ openclaw-code-agent/
 │   ├── singletons.ts           # Module-level singleton refs
 │   ├── session.ts              # Session class (state machine, timers, harness)
 │   ├── session-manager.ts      # Session pool management + lifecycle
+│   ├── session-store.ts        # Persisted session/index storage abstraction
+│   ├── session-metrics.ts      # Metrics recorder abstraction
+│   ├── wake-dispatcher.ts      # Wake delivery + retry abstraction
 │   ├── notifications.ts        # Notification service
 │   ├── actions/respond.ts      # Shared respond logic (tool + command)
+│   ├── application/            # Shared app-layer logic used by tools + commands
 │   ├── tools/                  # Tool implementations (6 tools)
-│   └── commands/               # Chat command implementations (6 commands)
+│   └── commands/               # Chat command implementations (7 commands)
 ├── tests/                      # Unit tests (node:test + tsx)
 ├── skills/                     # Orchestration skill definitions
 └── docs/                       # Architecture & reference docs

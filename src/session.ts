@@ -2,7 +2,7 @@ import { EventEmitter } from "events";
 import { nanoid } from "nanoid";
 import { getDefaultHarness, getHarness } from "./harness";
 import type { AgentHarness, HarnessSession, HarnessMessage } from "./harness";
-import type { SessionConfig, SessionStatus, PermissionMode, KillReason } from "./types";
+import type { SessionConfig, SessionStatus, PermissionMode, KillReason, ReasoningEffort } from "./types";
 import { pluginConfig, getGlobalMcpServers } from "./config";
 
 const OUTPUT_BUFFER_MAX = 200;
@@ -80,6 +80,7 @@ export class Session extends EventEmitter {
   readonly prompt: string;
   readonly workdir: string;
   readonly model?: string;
+  readonly reasoningEffort?: ReasoningEffort;
   private readonly systemPrompt?: string;
   private readonly allowedTools?: string[];
   private readonly permissionMode: PermissionMode;
@@ -133,6 +134,7 @@ export class Session extends EventEmitter {
   killReason: KillReason = "unknown";
   private waitingForInputFired: boolean = false;
   private lastTurnHadQuestion: boolean = false;
+  private planModeApproved: boolean = false;
 
   // Auto-respond counter
   autoRespondCount: number = 0;
@@ -145,13 +147,16 @@ export class Session extends EventEmitter {
     this.id = nanoid(8);
     this.name = name;
     this.harness = config.harness ? getHarness(config.harness) : getDefaultHarness();
+    const isCodexHarness = this.harness.name === "codex";
     this.prompt = config.prompt;
     this.workdir = config.workdir;
-    this.model = config.model;
+    this.model = config.model ?? (isCodexHarness ? pluginConfig.model : undefined) ?? pluginConfig.defaultModel;
+    this.reasoningEffort = config.reasoningEffort ?? (isCodexHarness ? pluginConfig.reasoningEffort : undefined);
     this.systemPrompt = config.systemPrompt;
     this.allowedTools = config.allowedTools;
     this.permissionMode = config.permissionMode ?? pluginConfig.permissionMode;
-    this.currentPermissionMode = this.permissionMode;
+    this.currentPermissionMode =
+      isCodexHarness && this.permissionMode === "plan" ? "default" : this.permissionMode;
     this.originChannel = config.originChannel;
     this.originThreadId = config.originThreadId;
     this.originAgentId = config.originAgentId;
@@ -174,6 +179,7 @@ export class Session extends EventEmitter {
 
   get phase(): string {
     if (this._status !== "running") return this._status;
+    if (this.harness.name === "codex") return "implementing";
     if (this.pendingPlanApproval) return "awaiting-plan-approval";
     if (this.currentPermissionMode === "plan") return "planning";
     return "implementing";
@@ -230,6 +236,7 @@ export class Session extends EventEmitter {
         prompt,
         cwd: this.workdir,
         model: this.model,
+        reasoningEffort: this.reasoningEffort,
         permissionMode: this.permissionMode,
         systemPrompt: this.systemPrompt,
         allowedTools: this.allowedTools,
@@ -269,31 +276,41 @@ export class Session extends EventEmitter {
 
     let effectiveText = text;
     if (this.pendingModeSwitch) {
-      // Only clear pendingPlanApproval on the approval path (mode switch)
-      this.pendingPlanApproval = false;
       const newMode = this.pendingModeSwitch;
-      this.pendingModeSwitch = undefined;
-
       let shouldInjectPrefix = false;
+      let appliedApprovalPath = false;
       if (this.harnessHandle?.setPermissionMode) {
         try {
           await this.harnessHandle.setPermissionMode(newMode);
           this.currentPermissionMode = newMode;
+          this.pendingModeSwitch = undefined;
+          appliedApprovalPath = true;
           shouldInjectPrefix = true;
         } catch (err: unknown) {
           console.error(`[Session ${this.id}] setPermissionMode(${newMode}) FAILED: ${errorMessage(err)}`);
-          this.pendingModeSwitch = newMode;  // Retry on next sendMessage
+          // Preserve the pending approval state so callers can retry cleanly.
+          this.pendingPlanApproval = true;
+          throw new Error(`Failed to switch permission mode to ${newMode}: ${errorMessage(err)}`);
         }
       } else {
         // Harness doesn't support setPermissionMode — inject text prefix as best-effort fallback
+        this.pendingModeSwitch = undefined;
+        appliedApprovalPath = true;
         shouldInjectPrefix = true;
         console.warn(`[Session ${this.id}] Cannot call setPermissionMode — falling back to text prefix only (currentPermissionMode remains ${this.currentPermissionMode})`);
       }
 
+      if (appliedApprovalPath) {
+        // Only clear pendingPlanApproval when the approval path is actually applied.
+        this.pendingPlanApproval = false;
+        if (newMode !== "plan") {
+          this.planModeApproved = true;
+        }
+      }
       if (shouldInjectPrefix) {
         effectiveText = `[SYSTEM: The user has approved your plan. Exit plan mode immediately and implement the changes with full permissions. Do not ask for further confirmation.]\n\n${text}`;
       }
-    } else if (this.pendingPlanApproval) {
+    } else if (this.pendingPlanApproval && !this.planModeApproved) {
       const toolNames = this.harness.planApprovalToolNames;
       const toolRef = toolNames.length > 0 ? ` then call ${toolNames.join(" or ")} again to re-submit for approval.` : " then re-submit your revised plan for approval.";
       effectiveText = `[SYSTEM: The user wants changes to your plan. Revise the plan based on their feedback below,${toolRef} Do NOT start implementing yet.]\n\n${text}`;
@@ -435,10 +452,10 @@ export class Session extends EventEmitter {
           this.lastTurnHadQuestion = true;
           // Defensive: CC normally uses ExitPlanMode in plan mode, but if it
           // uses AskUserQuestion instead, treat it as a plan approval signal.
-          if (this.currentPermissionMode === "plan") {
+          if (this.currentPermissionMode === "plan" && !this.planModeApproved) {
             this.pendingPlanApproval = true;
           }
-        } else if (this.harness.planApprovalToolNames.includes(msg.name)) {
+        } else if (this.harness.planApprovalToolNames.includes(msg.name) && !this.planModeApproved) {
           this.lastTurnHadQuestion = true;
           this.pendingPlanApproval = true;
         }
@@ -448,7 +465,7 @@ export class Session extends EventEmitter {
         // Kept for forward-compatibility if future SDK versions emit system/status permissionMode changes.
         const oldMode = this.currentPermissionMode;
         this.currentPermissionMode = msg.mode as PermissionMode;
-        if (msg.mode !== "plan" && oldMode === "plan") {
+        if (msg.mode !== "plan" && oldMode === "plan" && !this.planModeApproved) {
           this.pendingPlanApproval = true;
           this.lastTurnHadQuestion = true;
         }
@@ -473,7 +490,11 @@ export class Session extends EventEmitter {
           // its plan and is waiting for approval. The SDK does NOT fire a system/status
           // permissionMode change event — it just stops streaming. So we set
           // pendingPlanApproval here based on currentPermissionMode.
-          if (this.currentPermissionMode === "plan" && !this.pendingPlanApproval) {
+          if (
+            this.currentPermissionMode === "plan" &&
+            !this.pendingPlanApproval &&
+            !this.planModeApproved
+          ) {
             this.pendingPlanApproval = true;
           }
 

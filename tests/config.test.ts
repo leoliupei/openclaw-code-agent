@@ -159,9 +159,11 @@ describe("setPluginConfig", () => {
     setPluginConfig({
       maxSessions: 10,
       defaultModel: "opus",
+      model: "gpt-5.3-codex",
+      reasoningEffort: "high",
       defaultWorkdir: "/work",
       idleTimeoutMinutes: 60,
-      postTurnIdleMinutes: 15,
+      sessionGcAgeMinutes: 120,
       maxPersistedSessions: 100,
       fallbackChannel: "telegram|fallback",
       agentChannels: { "/a": "telegram|b|c" },
@@ -171,9 +173,11 @@ describe("setPluginConfig", () => {
     });
     assert.equal(pluginConfig.maxSessions, 10);
     assert.equal(pluginConfig.defaultModel, "opus");
+    assert.equal(pluginConfig.model, "gpt-5.3-codex");
+    assert.equal(pluginConfig.reasoningEffort, "high");
     assert.equal(pluginConfig.defaultWorkdir, "/work");
     assert.equal(pluginConfig.idleTimeoutMinutes, 60);
-    assert.equal(pluginConfig.postTurnIdleMinutes, 15);
+    assert.equal(pluginConfig.sessionGcAgeMinutes, 120);
     assert.equal(pluginConfig.maxPersistedSessions, 100);
     assert.equal(pluginConfig.fallbackChannel, "telegram|fallback");
     assert.deepEqual(pluginConfig.agentChannels, { "/a": "telegram|b|c" });
@@ -185,9 +189,11 @@ describe("setPluginConfig", () => {
   it("uses defaults for missing numeric fields", () => {
     setPluginConfig({});
     assert.equal(pluginConfig.maxSessions, 5);
-    assert.equal(pluginConfig.idleTimeoutMinutes, 30);
+    assert.equal(pluginConfig.idleTimeoutMinutes, 15);
+    assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
     assert.equal(pluginConfig.maxPersistedSessions, 50);
     assert.equal(pluginConfig.maxAutoResponds, 10);
+    assert.equal(pluginConfig.reasoningEffort, "medium");
   });
 
   it("uses default for missing permissionMode", () => {
@@ -203,8 +209,8 @@ describe("setPluginConfig", () => {
   it("preserves optional fields as undefined when not provided", () => {
     setPluginConfig({});
     assert.equal(pluginConfig.defaultModel, undefined);
+    assert.equal(pluginConfig.model, undefined);
     assert.equal(pluginConfig.defaultWorkdir, undefined);
-    assert.equal(pluginConfig.postTurnIdleMinutes, undefined);
     assert.equal(pluginConfig.fallbackChannel, undefined);
     assert.equal(pluginConfig.agentChannels, undefined);
   });
@@ -251,11 +257,13 @@ describe("pluginConfig singleton", () => {
   it("pluginConfig reflects initial defaults after reset", () => {
     setPluginConfig({});
     assert.equal(pluginConfig.maxSessions, 5);
-    assert.equal(pluginConfig.idleTimeoutMinutes, 30);
+    assert.equal(pluginConfig.idleTimeoutMinutes, 15);
+    assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
     assert.equal(pluginConfig.maxPersistedSessions, 50);
     assert.equal(pluginConfig.maxAutoResponds, 10);
     assert.equal(pluginConfig.permissionMode, "plan");
     assert.equal(pluginConfig.planApproval, "delegate");
+    assert.equal(pluginConfig.reasoningEffort, "medium");
   });
 
   it("setPluginConfig mutates the module-level singleton", () => {

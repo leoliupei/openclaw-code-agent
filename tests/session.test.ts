@@ -94,6 +94,13 @@ describe("Session.kill()", () => {
     session.kill("user");
     assert.equal(session.status, "completed");
   });
+
+  it("can kill directly from starting state", () => {
+    session.kill("startup-timeout");
+    assert.equal(session.status, "killed");
+    assert.equal(session.killReason, "startup-timeout");
+    assert.ok(session.completedAt, "should set completedAt");
+  });
 });
 
 describe("Session.complete()", () => {
@@ -118,6 +125,7 @@ describe("Session.complete()", () => {
     session.complete();
     assert.equal(session.status, "killed");
   });
+
 });
 
 describe("Session event emission", () => {
@@ -131,6 +139,34 @@ describe("Session event emission", () => {
     assert.equal(events.length, 1);
     assert.equal(events[0].newStatus, "running");
     assert.equal(events[0].prevStatus, "starting");
+  });
+
+  it("includes killReason/completedAt on first killed statusChange", () => {
+    const session = new Session(BASE_CONFIG, "test");
+    session.transition("running");
+    let snapshot: { reason: string; completedAt?: number } | undefined;
+    session.on("statusChange", (s, newStatus) => {
+      if (newStatus === "killed" && !snapshot) {
+        snapshot = { reason: s.killReason, completedAt: s.completedAt };
+      }
+    });
+    session.kill("user");
+    assert.equal(snapshot?.reason, "user");
+    assert.ok(snapshot?.completedAt);
+  });
+
+  it("includes killReason/completedAt on first completed statusChange", () => {
+    const session = new Session(BASE_CONFIG, "test");
+    session.transition("running");
+    let snapshot: { reason: string; completedAt?: number } | undefined;
+    session.on("statusChange", (s, newStatus) => {
+      if (newStatus === "completed" && !snapshot) {
+        snapshot = { reason: s.killReason, completedAt: s.completedAt };
+      }
+    });
+    session.complete("done");
+    assert.equal(snapshot?.reason, "done");
+    assert.ok(snapshot?.completedAt);
   });
 });
 
@@ -251,5 +287,13 @@ describe("Session.phase", () => {
     // currentPermissionMode is still "plan" from BASE_CONFIG
     assert.equal(session.currentPermissionMode, "plan");
     assert.equal(session.phase, "awaiting-plan-approval");
+  });
+
+  it("surfaces Codex sessions as implementing even when configured in plan mode", () => {
+    const codexSession = new Session({ ...BASE_CONFIG, harness: "codex" }, "codex-test");
+    codexSession.transition("running");
+
+    assert.equal(codexSession.currentPermissionMode, "default");
+    assert.equal(codexSession.phase, "implementing");
   });
 });

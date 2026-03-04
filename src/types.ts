@@ -17,12 +17,14 @@ export type SessionStatus = "starting" | "running" | "completed" | "failed" | "k
 export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "done" | "unknown";
 
 export type PermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
+export type ReasoningEffort = "low" | "medium" | "high";
 
 export interface SessionConfig {
   prompt: string;
   workdir: string;
   name?: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   systemPrompt?: string;
   allowedTools?: string[];
   originChannel?: string;
@@ -45,6 +47,8 @@ export type PlanApprovalMode = "approve" | "ask" | "delegate";
 export interface PluginConfig {
   maxSessions: number;
   defaultModel?: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
   defaultWorkdir?: string;
   idleTimeoutMinutes: number;
   sessionGcAgeMinutes?: number;

@@ -82,7 +82,6 @@ describe("Plan mode E2E: ExitPlanMode flow", () => {
       approve: true,
     });
 
-    console.log(`[Test] executeRespond result: ${result.text}`);
     assert.ok(!result.isError, `Should not be an error, got: ${result.text}`);
     assert.ok(!result.text.includes("no pending plan approval"), `Should not say no pending plan: ${result.text}`);
     assert.ok(result.text.includes("Message sent"), `Should say message sent: ${result.text}`);
@@ -185,6 +184,31 @@ describe("Plan mode E2E: ExitPlanMode flow", () => {
 
     assert.equal(session.pendingPlanApproval, true, "pendingPlanApproval should remain true for revisions");
     assert.equal(session.currentPermissionMode, "plan", "mode should stay plan for revisions");
+
+    session.kill("user");
+  });
+
+  it("plan flow: ignores late plan-approval signals after approval", async () => {
+    const session = await startSession({ permissionMode: "plan", multiTurn: true });
+
+    fakeHarness.pushMessage({ type: "tool_use", name: "ExitPlanMode", input: {} });
+    await tick(20);
+    fakeHarness.pushMessage({
+      type: "result",
+      data: { success: true, duration_ms: 5000, total_cost_usd: 0.1, num_turns: 1, session_id: session.harnessSessionId! },
+    });
+    await tick(50);
+
+    session.switchPermissionMode("bypassPermissions");
+    await session.sendMessage("Approved. Go ahead.");
+    assert.equal(session.pendingPlanApproval, false);
+    assert.equal(session.currentPermissionMode, "bypassPermissions");
+
+    fakeHarness.pushMessage({ type: "tool_use", name: "ExitPlanMode", input: {} });
+    await tick(20);
+
+    assert.equal(session.pendingPlanApproval, false, "late plan signals should be ignored after approval");
+    assert.equal(session.currentPermissionMode, "bypassPermissions");
 
     session.kill("user");
   });
