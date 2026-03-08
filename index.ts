@@ -147,7 +147,7 @@ export function register(api: OpenClawPluginApi): void {
     },
     stop: () => {
       if (ns) ns.stop();
-      if (sm) sm.killAll();
+      if (sm) sm.killAll("shutdown");
       if (cleanupInterval) clearInterval(cleanupInterval);
       cleanupInterval = null;
       sm = null;

@@ -260,6 +260,18 @@ describe("SessionManager.killAll()", () => {
     assert.ok(!killed.includes("s1"), "completed session should not be killed");
     assert.ok(killed.includes("s2"), "running session should be killed");
   });
+
+  it("forwards a custom shutdown reason to active sessions", () => {
+    const reasons: string[] = [];
+    const s1 = fakeSession({ id: "s1", status: "running", kill(reason: string) { reasons.push(`s1:${reason}`); } });
+    const s2 = fakeSession({ id: "s2", status: "starting", kill(reason: string) { reasons.push(`s2:${reason}`); } });
+    (sm as any).sessions.set("s1", s1);
+    (sm as any).sessions.set("s2", s2);
+
+    sm.killAll("shutdown");
+
+    assert.deepEqual(reasons.sort(), ["s1:shutdown", "s2:shutdown"]);
+  });
 });
 
 // =========================================================================

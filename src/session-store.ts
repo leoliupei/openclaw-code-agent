@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { dirname, join } from "path";
-import type { PersistedSessionInfo, SessionStatus } from "./types";
+import type { PersistedSessionInfo, SessionStatus, KillReason, ReasoningEffort, PermissionMode } from "./types";
 import type { Session } from "./session";
 
 /** Resolve OpenClaw home directory from environment or default path. */
@@ -52,6 +52,22 @@ function toOptionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function toOptionalReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  return value === "low" || value === "medium" || value === "high" ? value : undefined;
+}
+
+function toOptionalPermissionMode(value: unknown): PermissionMode | undefined {
+  return value === "default" || value === "plan" || value === "acceptEdits" || value === "bypassPermissions"
+    ? value
+    : undefined;
+}
+
+function toOptionalKillReason(value: unknown): KillReason | undefined {
+  return value === "user" || value === "idle-timeout" || value === "startup-timeout" || value === "shutdown" || value === "done" || value === "unknown"
+    ? value
+    : undefined;
+}
+
 function normalizeStatus(value: unknown): SessionStatus | undefined {
   if (typeof value !== "string") return undefined;
   if (!VALID_STATUSES.has(value as SessionStatus)) return undefined;
@@ -76,9 +92,11 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     prompt: toNonEmptyString(raw.prompt),
     workdir: toNonEmptyString(raw.workdir, "(unknown)"),
     model: toOptionalString(raw.model),
+    reasoningEffort: toOptionalReasoningEffort(raw.reasoningEffort),
     createdAt: toOptionalNumber(raw.createdAt),
     completedAt: toOptionalNumber(raw.completedAt),
     status,
+    killReason: toOptionalKillReason(raw.killReason),
     costUsd: typeof raw.costUsd === "number" && Number.isFinite(raw.costUsd) ? raw.costUsd : 0,
     originAgentId: toOptionalString(raw.originAgentId),
     originChannel: toOptionalString(raw.originChannel),
@@ -88,6 +106,8 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     originSessionKey: toOptionalString(raw.originSessionKey),
     outputPath: toOptionalString(raw.outputPath),
     harness: toOptionalString(raw.harness),
+    notifyOnTurnEnd: typeof raw.notifyOnTurnEnd === "boolean" ? raw.notifyOnTurnEnd : undefined,
+    currentPermissionMode: toOptionalPermissionMode(raw.currentPermissionMode),
   };
 }
 
@@ -158,6 +178,7 @@ export class SessionStore {
       prompt: session.prompt,
       workdir: session.workdir,
       model: session.model,
+      reasoningEffort: session.reasoningEffort,
       createdAt: session.startedAt,
       status: "running",
       costUsd: 0,
@@ -166,6 +187,8 @@ export class SessionStore {
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
       harness: session.harnessName,
+      notifyOnTurnEnd: session.notifyOnTurnEnd,
+      currentPermissionMode: session.currentPermissionMode,
     };
     this.persisted.set(stub.harnessSessionId, stub);
     this.idIndex.set(session.id, stub.harnessSessionId);
@@ -201,9 +224,11 @@ export class SessionStore {
       prompt: session.prompt,
       workdir: session.workdir,
       model: session.model,
+      reasoningEffort: session.reasoningEffort,
       createdAt: session.startedAt,
       completedAt: session.completedAt,
       status: session.status,
+      killReason: session.killReason,
       costUsd: session.costUsd,
       originAgentId: session.originAgentId,
       originChannel: session.originChannel,
@@ -211,6 +236,8 @@ export class SessionStore {
       originSessionKey: session.originSessionKey,
       outputPath,
       harness: session.harnessName,
+      notifyOnTurnEnd: session.notifyOnTurnEnd,
+      currentPermissionMode: session.currentPermissionMode,
     };
 
     this.persisted.set(session.harnessSessionId, info);

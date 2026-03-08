@@ -2,7 +2,7 @@ import type { SessionManager } from "../session-manager";
 import { pluginConfig } from "../config";
 import { truncateText } from "../format";
 import type { Session } from "../session";
-import type { SessionConfig } from "../types";
+import type { PersistedSessionInfo, SessionConfig } from "../types";
 
 interface RespondParams {
   session: string;
@@ -18,7 +18,7 @@ interface RespondResult {
 }
 
 const AUTO_RESUMABLE_STATUSES = new Set(["killed", "completed", "failed"]);
-const AUTO_RESUMABLE_REASONS = new Set(["idle-timeout", "done"]);
+const AUTO_RESUMABLE_REASONS = new Set(["idle-timeout", "shutdown", "done"]);
 const DEFAULT_MAX_AUTO_RESPONDS = 10;
 const SIMPLE_APPROVAL_MAX_CHARS = 100;
 const REVISION_KEYWORDS_RE = /\b(change|swap|replace|remove|add|update|instead|don't|revise|modify)\b/i;
@@ -35,11 +35,31 @@ function getResumeLabel(status: string): string {
   }
 }
 
-function canAutoResume(session: Session): boolean {
+type ResumableSession = Session | PersistedSessionInfo;
+
+function getSessionRef(session: ResumableSession): string {
+  return "id" in session ? session.id : (session.sessionId ?? session.harnessSessionId);
+}
+
+function isRecoveredRunningStub(session: PersistedSessionInfo): boolean {
+  return session.status === "killed" && session.completedAt == null;
+}
+
+function canAutoResume(session: ResumableSession, allowRecoveredRunningStub: boolean): boolean {
   return (
     AUTO_RESUMABLE_STATUSES.has(session.status) &&
     !!session.harnessSessionId &&
-    (session.status === "failed" || AUTO_RESUMABLE_REASONS.has(session.killReason))
+    (
+      session.status === "failed"
+      || (session.status === "completed" && session.killReason === "done")
+      || (
+        session.status === "killed"
+        && (
+          AUTO_RESUMABLE_REASONS.has(session.killReason ?? "")
+          || (allowRecoveredRunningStub && isRecoveredRunningStub(session as PersistedSessionInfo))
+        )
+      )
+    )
   );
 }
 
@@ -62,10 +82,11 @@ function validateApprovalMessage(sessionName: string, message: string): RespondR
 
 async function tryAutoResume(
   sm: SessionManager,
-  session: Session,
+  session: ResumableSession,
   message: string,
+  options: { allowRecoveredRunningStub?: boolean } = {},
 ): Promise<RespondResult | undefined> {
-  if (!canAutoResume(session)) return undefined;
+  if (!canAutoResume(session, options.allowRecoveredRunningStub === true)) return undefined;
 
   try {
     // Preserve all relevant runtime/session-routing knobs so auto-resume is a
@@ -84,14 +105,14 @@ async function tryAutoResume(
       originAgentId: session.originAgentId,
       originSessionKey: session.originSessionKey,
       permissionMode: session.currentPermissionMode,
-      harness: session.harnessName,
+      harness: "harnessName" in session ? session.harnessName : session.harness,
     };
     const resumed = sm.spawn(resumeConfig);
     const resumeLabel = getResumeLabel(session.status);
     sm.deliverToTelegram(resumed, `🔄 [${resumed.name}] Auto-resumed from ${resumeLabel}`);
     return { text: `Auto-resumed ${resumeLabel} session ${resumed.name} [${resumed.id}]. Use agent_output to see the response.` };
   } catch (err: unknown) {
-    return { text: `Error auto-resuming session ${session.name} [${session.id}]: ${errorMessage(err)}`, isError: true };
+    return { text: `Error auto-resuming session ${session.name} [${getSessionRef(session)}]: ${errorMessage(err)}`, isError: true };
   }
 }
 
@@ -134,14 +155,23 @@ export async function executeRespond(
   params: RespondParams,
 ): Promise<RespondResult> {
   const session = sm.resolve(params.session);
+  const persisted = session ? undefined : sm.getPersistedSession(params.session);
 
-  if (!session) {
+  if (!session && !persisted) {
     return { text: `Error: Session "${params.session}" not found.`, isError: true };
   }
 
-  const autoResumeResult = await tryAutoResume(sm, session, params.message);
+  const target = session ?? persisted!;
+  const autoResumeResult = await tryAutoResume(sm, target, params.message, { allowRecoveredRunningStub: !session });
   if (autoResumeResult) {
     return autoResumeResult;
+  }
+
+  if (!session) {
+    return {
+      text: `Error: Session ${persisted!.name} [${getSessionRef(persisted!)}] is not running (status: ${persisted!.status}). Cannot send a message to a non-running session.`,
+      isError: true,
+    };
   }
 
   if (session.status !== "running") {

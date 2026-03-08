@@ -16,7 +16,7 @@ export interface OpenClawPluginToolContext {
 export type SessionStatus = "starting" | "running" | "completed" | "failed" | "killed";
 
 /** Terminal reason used for lifecycle messaging and auto-resume policy. */
-export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "done" | "unknown";
+export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "shutdown" | "done" | "unknown";
 
 /** Unified permission modes exposed by tools/commands across harnesses. */
 export type PermissionMode = "default" | "plan" | "acceptEdits" | "bypassPermissions";
@@ -75,9 +75,11 @@ export interface PersistedSessionInfo {
   prompt: string;
   workdir: string;
   model?: string;
+  reasoningEffort?: ReasoningEffort;
   createdAt?: number;
   completedAt?: number;
   status: SessionStatus;
+  killReason?: KillReason;
   costUsd: number;
   originAgentId?: string;
   originChannel?: string;
@@ -85,6 +87,8 @@ export interface PersistedSessionInfo {
   originSessionKey?: string;
   outputPath?: string;
   harness?: string;
+  notifyOnTurnEnd?: boolean;
+  currentPermissionMode?: PermissionMode;
 }
 
 /** In-memory usage metrics shown by `agent_stats`. */

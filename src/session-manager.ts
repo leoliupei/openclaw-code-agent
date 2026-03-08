@@ -219,6 +219,7 @@ export class SessionManager {
       const reasonMap: Record<string, string> = {
         "user": "by agent/user",
         "idle-timeout": `idle ${pluginConfig.idleTimeoutMinutes ?? 15}min`,
+        "shutdown": "gateway shutdown",
         "unknown": "",
       };
       const killDetail = reasonMap[session.killReason] || "";
@@ -573,10 +574,10 @@ export class SessionManager {
   }
 
   /** Kill all active sessions and clear pending wake retries. */
-  killAll(): void {
+  killAll(reason: KillReason = "user"): void {
     for (const session of this.sessions.values()) {
       if (KILLABLE_STATUSES.has(session.status)) {
-        this.kill(session.id);
+        this.kill(session.id, reason);
       }
     }
     this.wakeDispatcher.clearPendingRetries();

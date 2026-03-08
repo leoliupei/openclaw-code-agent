@@ -77,7 +77,7 @@ agent_launch(
 
 ## agent_respond
 
-Send a follow-up message to a running multi-turn coding agent session. If the session was idle-killed (idle-timeout or paused (`done`)), the plugin auto-resumes it with conversation context preserved.
+Send a follow-up message to a running multi-turn coding agent session. If the session was idle-killed (idle-timeout or paused (`done`)), the plugin auto-resumes it with conversation context preserved. After a gateway restart, `agent_respond` can also target the persisted session by internal ID, name, or harness session ID and resume it directly.
 
 ### Parameters
 

@@ -142,4 +142,51 @@ describe("SessionStore path resolution", () => {
 
     assert.deepEqual([...store.persisted.keys()], []);
   });
+
+  it("rebuilds short session ID lookup from persisted index after restart", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-store-restart-"));
+    const indexPath = join(dir, "sessions.json");
+    writeFileSync(indexPath, "[]", "utf-8");
+
+    const original = new SessionStore({
+      indexPath,
+      env: {},
+    });
+    markRunningAt(original, "GccpSIqJ");
+
+    const reloaded = new SessionStore({
+      indexPath,
+      env: {},
+    });
+
+    const persisted = reloaded.getPersistedSession("GccpSIqJ");
+    assert.equal(reloaded.resolveHarnessSessionId("GccpSIqJ"), "h-GccpSIqJ");
+    assert.equal(persisted?.harnessSessionId, "h-GccpSIqJ");
+    assert.equal(persisted?.sessionId, "GccpSIqJ");
+    assert.equal(persisted?.status, "killed");
+  });
+
+  it("preserves shutdown kill reason when reloading persisted sessions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-store-shutdown-"));
+    const indexPath = join(dir, "sessions.json");
+    writeFileSync(indexPath, JSON.stringify([{
+      sessionId: "lWi_9aoa",
+      harnessSessionId: "h-shutdown",
+      name: "codex-morning-report-telegram-400",
+      prompt: "p",
+      workdir: "/tmp",
+      status: "killed",
+      killReason: "shutdown",
+      completedAt: 200,
+      costUsd: 0,
+    }]), "utf-8");
+
+    const store = new SessionStore({
+      indexPath,
+      env: {},
+    });
+
+    const persisted = store.getPersistedSession("lWi_9aoa");
+    assert.equal(persisted?.killReason, "shutdown");
+  });
 });

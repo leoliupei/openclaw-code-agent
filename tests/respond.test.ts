@@ -12,6 +12,9 @@ import { executeRespond } from "../src/actions/respond";
 
 function createStubSessionManager(sessions: Record<string, any> = {}): SessionManager {
   const sm = new SessionManager(5);
+  sm.persisted.clear();
+  sm.idIndex.clear();
+  sm.nameIndex.clear();
   for (const [id, session] of Object.entries(sessions)) {
     (sm as any).sessions.set(id, session);
   }
@@ -168,6 +171,123 @@ describe("executeRespond — auto-resume", () => {
     const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
     assert.ok(result.text.includes("Auto-resumed"));
     assert.ok(result.text.includes("idle-kill"));
+  });
+
+  it("auto-resumes a persisted shutdown-killed session after restart", async () => {
+    const sm = createStubSessionManager();
+    sm.persisted.set("harness-shutdown", {
+      sessionId: "lWi_9aoa",
+      harnessSessionId: "harness-shutdown",
+      name: "codex-morning-report-telegram-400",
+      prompt: "p",
+      workdir: "/tmp/repo",
+      model: "gpt-5",
+      createdAt: 100,
+      completedAt: 200,
+      status: "killed",
+      killReason: "shutdown",
+      costUsd: 0,
+      harness: "codex",
+    });
+    sm.idIndex.set("lWi_9aoa", "harness-shutdown");
+
+    let capturedConfig: any;
+    sm.spawn = (config: any) => {
+      capturedConfig = config;
+      return createStubSession({ name: "codex-morning-report-telegram-400", id: "new-id" });
+    };
+
+    const result = await executeRespond(sm, { session: "codex-morning-report-telegram-400", message: "continue after restart" });
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.equal(capturedConfig.resumeSessionId, "harness-shutdown");
+  });
+
+  it("auto-resumes a persisted restart-recovered session by short internal ID", async () => {
+    const sm = createStubSessionManager();
+    sm.persisted.set("harness-restart", {
+      sessionId: "GccpSIqJ",
+      harnessSessionId: "harness-restart",
+      name: "persisted-session",
+      prompt: "p",
+      workdir: "/tmp/repo",
+      model: "gpt-5",
+      reasoningEffort: "high",
+      createdAt: 100,
+      status: "killed",
+      costUsd: 0,
+      originChannel: "telegram|bot|123",
+      originThreadId: 42,
+      originAgentId: "agent-main",
+      originSessionKey: "agent:main:telegram:group:123:topic:42",
+      harness: "codex",
+      notifyOnTurnEnd: false,
+      currentPermissionMode: "acceptEdits",
+    });
+    sm.idIndex.set("GccpSIqJ", "harness-restart");
+
+    let capturedConfig: any;
+    sm.spawn = (config: any) => {
+      capturedConfig = config;
+      return createStubSession({ name: "persisted-session", id: "new-id" });
+    };
+
+    const result = await executeRespond(sm, { session: "GccpSIqJ", message: "continue after restart" });
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.ok(capturedConfig, "spawn should use persisted session metadata");
+    assert.equal(capturedConfig.resumeSessionId, "harness-restart");
+    assert.equal(capturedConfig.reasoningEffort, "high");
+    assert.equal(capturedConfig.notifyOnTurnEnd, false);
+    assert.equal(capturedConfig.permissionMode, "acceptEdits");
+    assert.equal(capturedConfig.harness, "codex");
+  });
+
+  it("auto-resumes a persisted session by name or harness session ID", async () => {
+    const persisted = {
+      sessionId: "old-id",
+      harnessSessionId: "harness-persisted",
+      name: "persisted-name",
+      prompt: "p",
+      workdir: "/tmp",
+      createdAt: 100,
+      completedAt: 200,
+      status: "completed" as const,
+      killReason: "done" as const,
+      costUsd: 0,
+    };
+
+    const smByName = createStubSessionManager();
+    smByName.persisted.set("harness-persisted", persisted);
+    smByName.spawn = () => createStubSession({ name: "persisted-name", id: "new-id-1" });
+    const byName = await executeRespond(smByName, { session: "persisted-name", message: "continue by name" });
+    assert.ok(byName.text.includes("Auto-resumed"));
+
+    const smByHarness = createStubSessionManager();
+    smByHarness.persisted.set("harness-persisted", persisted);
+    smByHarness.spawn = () => createStubSession({ name: "persisted-name", id: "new-id-2" });
+    const byHarness = await executeRespond(smByHarness, { session: "harness-persisted", message: "continue by harness" });
+    assert.ok(byHarness.text.includes("Auto-resumed"));
+  });
+
+  it("does NOT auto-resume a persisted user-killed session after restart", async () => {
+    const sm = createStubSessionManager();
+    sm.persisted.set("harness-user", {
+      sessionId: "old-user",
+      harnessSessionId: "harness-user",
+      name: "user-killed",
+      prompt: "p",
+      workdir: "/tmp",
+      createdAt: 100,
+      completedAt: 200,
+      status: "killed",
+      killReason: "user",
+      costUsd: 0,
+    });
+    sm.idIndex.set("old-user", "harness-user");
+
+    const result = await executeRespond(sm, { session: "old-user", message: "continue" });
+    assert.equal(result.isError, true);
+    assert.ok(result.text.includes("user-killed"));
+    assert.ok(result.text.includes("not running"));
   });
 });
 
