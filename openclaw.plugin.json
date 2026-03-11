@@ -40,8 +40,8 @@
       },
       "maxPersistedSessions": {
         "type": "number",
-        "default": 50,
-        "description": "Maximum number of completed sessions to keep in memory for resume"
+        "default": 10000,
+        "description": "Maximum number of completed sessions to keep in memory for resume. In practice, the 24h GC TTL (`sessionGcAgeMinutes`) is the primary retention control."
       },
       "fallbackChannel": {
         "type": "string",

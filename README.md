@@ -189,7 +189,7 @@ Set values in `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-
 | `permissionMode` | `string` | `"plan"` | `"default"` / `"plan"` / `"acceptEdits"` / `"bypassPermissions"` |
 | `idleTimeoutMinutes` | `number` | `15` | Idle timeout before auto-kill |
 | `sessionGcAgeMinutes` | `number` | `1440` | TTL for completed/failed/killed runtime sessions before GC eviction |
-| `maxPersistedSessions` | `number` | `50` | Max completed sessions kept for resume |
+| `maxPersistedSessions` | `number` | `10000` | Max completed sessions kept for resume; the 24h GC TTL (`sessionGcAgeMinutes`) is the primary retention control |
 | `planApproval` | `string` | `"delegate"` | `"approve"` (orchestrator can auto-approve) / `"ask"` (always forward to user) / `"delegate"` (orchestrator decides) |
 | `defaultHarness` | `string` | `"claude-code"` | Default harness for new sessions (`"claude-code"` / `"codex"`) |
 | `model` | `string` | — | Codex-only model override for new sessions (for example `"gpt-5.3-codex"`). Used when no explicit `model` is passed to `agent_launch`; falls back to `defaultModel` if unset |
