@@ -38,7 +38,6 @@ Launch a coding agent session in the background to execute a development task. S
 | `resume_session_id` | string | no | — | Session ID to resume (from a previous session's `harnessSessionId`). Accepts name, internal ID, or harness UUID — the plugin resolves it |
 | `fork_session` | boolean | no | `false` | When resuming, fork to a new session instead of continuing the existing one. Use with `resume_session_id` |
 | `multi_turn_disabled` | boolean | no | `false` | Disable multi-turn mode. Set to `true` for fire-and-forget sessions that don't accept follow-ups |
-| `notify_on_turn_end` | boolean | no | `true` | If `false`, suppress turn-end wake notifications for this session |
 | `permission_mode` | enum | no | plugin config (`plan` by default) | One of: `default`, `plan`, `acceptEdits`, `bypassPermissions` |
 | `harness` | string | no | plugin `defaultHarness` (`claude-code`) | Harness backend. Built-ins: `claude-code`, `codex` |
 

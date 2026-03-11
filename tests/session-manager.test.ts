@@ -624,7 +624,6 @@ describe("SessionManager turn-end wake", () => {
       id: "s-turn",
       name: "deterministic",
       status: "running",
-      notifyOnTurnEnd: true,
       originChannel: "telegram|bot|123",
       originThreadId: 26,
       getOutput: () => ["I completed the patch.", "Should I continue and apply tests?"],
@@ -649,7 +648,6 @@ describe("SessionManager turn-end wake", () => {
       id: "s-wait",
       name: "waiter",
       status: "running",
-      notifyOnTurnEnd: true,
       pendingPlanApproval: false,
       getOutput: () => ["Need your decision."],
     });
@@ -665,27 +663,11 @@ describe("SessionManager turn-end wake", () => {
     assert.match(request.wakeMessage, /waiting for input/i);
   });
 
-  it("suppresses turn-end wake when notifyOnTurnEnd is false", () => {
-    const s = fakeSession({
-      id: "s-no-wake",
-      name: "silent",
-      status: "running",
-      notifyOnTurnEnd: false,
-      getOutput: () => ["No wake expected."],
-    });
-
-    (sm as any).onTurnEnd(s, false);
-
-    const calls = (sm as any).__dispatchCalls;
-    assert.equal(calls.length, 0);
-  });
-
   it("de-dupes duplicate turn-end wake for the same turn marker", () => {
     const s = fakeSession({
       id: "s-dup-turn",
       name: "dup-turn",
       status: "running",
-      notifyOnTurnEnd: true,
       originChannel: "telegram|bot|123",
       result: {
         session_id: "thread-1",

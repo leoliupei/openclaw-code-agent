@@ -99,7 +99,6 @@ export class Session extends EventEmitter {
 
   // Multi-turn
   readonly multiTurn: boolean;
-  readonly notifyOnTurnEnd: boolean;
   private messageStream?: MessageStream;
 
   // State
@@ -170,7 +169,6 @@ export class Session extends EventEmitter {
     this.resumeSessionId = config.resumeSessionId;
     this.forkSession = config.forkSession;
     this.multiTurn = config.multiTurn ?? true;
-    this.notifyOnTurnEnd = config.notifyOnTurnEnd ?? true;
     this.startedAt = Date.now();
     this.abortController = new AbortController();
   }

@@ -69,7 +69,6 @@ describe("executeRespond — auto-resume", () => {
       killReason: "done",
       harnessSessionId: "harness-meta",
       harnessName: "codex",
-      notifyOnTurnEnd: false,
       originChannel: "telegram|bot|123",
       originThreadId: 42,
       originAgentId: "agent-main",
@@ -88,7 +87,6 @@ describe("executeRespond — auto-resume", () => {
     assert.ok(result.text.includes("Auto-resumed"));
     assert.ok(capturedConfig, "spawn config should be captured");
     assert.equal(capturedConfig.harness, "codex");
-    assert.equal(capturedConfig.notifyOnTurnEnd, false);
     assert.equal(capturedConfig.originSessionKey, "agent:main:telegram:group:123:topic:42");
     assert.equal(capturedConfig.originChannel, "telegram|bot|123");
     assert.equal(capturedConfig.originThreadId, 42);
@@ -220,7 +218,6 @@ describe("executeRespond — auto-resume", () => {
       originAgentId: "agent-main",
       originSessionKey: "agent:main:telegram:group:123:topic:42",
       harness: "codex",
-      notifyOnTurnEnd: false,
       currentPermissionMode: "acceptEdits",
     });
     sm.idIndex.set("GccpSIqJ", "harness-restart");
@@ -236,7 +233,6 @@ describe("executeRespond — auto-resume", () => {
     assert.ok(capturedConfig, "spawn should use persisted session metadata");
     assert.equal(capturedConfig.resumeSessionId, undefined);
     assert.equal(capturedConfig.reasoningEffort, "high");
-    assert.equal(capturedConfig.notifyOnTurnEnd, false);
     assert.equal(capturedConfig.permissionMode, "acceptEdits");
     assert.equal(capturedConfig.harness, "codex");
   });

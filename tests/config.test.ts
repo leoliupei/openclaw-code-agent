@@ -216,7 +216,7 @@ describe("setPluginConfig", () => {
     assert.equal(pluginConfig.maxSessions, 5);
     assert.equal(pluginConfig.idleTimeoutMinutes, 15);
     assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
-    assert.equal(pluginConfig.maxPersistedSessions, 50);
+    assert.equal(pluginConfig.maxPersistedSessions, 10000);
     assert.equal(pluginConfig.maxAutoResponds, 10);
     assert.equal(pluginConfig.reasoningEffort, "medium");
   });
@@ -284,7 +284,7 @@ describe("pluginConfig singleton", () => {
     assert.equal(pluginConfig.maxSessions, 5);
     assert.equal(pluginConfig.idleTimeoutMinutes, 15);
     assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
-    assert.equal(pluginConfig.maxPersistedSessions, 50);
+    assert.equal(pluginConfig.maxPersistedSessions, 10000);
     assert.equal(pluginConfig.maxAutoResponds, 10);
     assert.equal(pluginConfig.permissionMode, "plan");
     assert.equal(pluginConfig.planApproval, "delegate");

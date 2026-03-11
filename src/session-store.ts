@@ -106,7 +106,6 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     originSessionKey: toOptionalString(raw.originSessionKey),
     outputPath: toOptionalString(raw.outputPath),
     harness: toOptionalString(raw.harness),
-    notifyOnTurnEnd: typeof raw.notifyOnTurnEnd === "boolean" ? raw.notifyOnTurnEnd : undefined,
     currentPermissionMode: toOptionalPermissionMode(raw.currentPermissionMode),
   };
 }
@@ -187,7 +186,6 @@ export class SessionStore {
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
       harness: session.harnessName,
-      notifyOnTurnEnd: session.notifyOnTurnEnd,
       currentPermissionMode: session.currentPermissionMode,
     };
     this.persisted.set(stub.harnessSessionId, stub);
@@ -236,7 +234,6 @@ export class SessionStore {
       originSessionKey: session.originSessionKey,
       outputPath,
       harness: session.harnessName,
-      notifyOnTurnEnd: session.notifyOnTurnEnd,
       currentPermissionMode: session.currentPermissionMode,
     };
 

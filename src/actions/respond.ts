@@ -112,7 +112,6 @@ async function tryAutoResume(
       reasoningEffort: session.reasoningEffort,
       resumeSessionId,
       multiTurn: true,
-      notifyOnTurnEnd: session.notifyOnTurnEnd,
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       originAgentId: session.originAgentId,

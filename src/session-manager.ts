@@ -521,8 +521,6 @@ export class SessionManager {
   }
 
   private onTurnEnd(session: Session, hadQuestion: boolean): void {
-    if (session.notifyOnTurnEnd === false) return;
-
     // Use the dedicated waiting path for explicit question/plan-approval turns.
     // This preserves plan approval policy handling and waiting-specific guidance.
     if (hadQuestion || session.pendingPlanApproval) {

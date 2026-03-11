@@ -48,8 +48,6 @@ export interface SessionConfig {
   multiTurn?: boolean;
   /** Agent harness to use (e.g. "claude-code"). Defaults to the built-in default. */
   harness?: string;
-  /** Whether to send wake notifications at every turn end. Defaults to true. */
-  notifyOnTurnEnd?: boolean;
 }
 
 /** Plan-approval policy for orchestrator wake flows. */
@@ -93,7 +91,6 @@ export interface PersistedSessionInfo {
   originSessionKey?: string;
   outputPath?: string;
   harness?: string;
-  notifyOnTurnEnd?: boolean;
   currentPermissionMode?: PermissionMode;
 }
 

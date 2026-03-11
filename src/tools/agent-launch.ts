@@ -15,7 +15,6 @@ interface AgentLaunchParams {
   resume_session_id?: string;
   fork_session?: boolean;
   multi_turn_disabled?: boolean;
-  notify_on_turn_end?: boolean;
   permission_mode?: "default" | "plan" | "acceptEdits" | "bypassPermissions";
   harness?: string;
   agentId?: string;
@@ -54,9 +53,6 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
       ),
       multi_turn_disabled: Type.Optional(
         Type.Boolean({ description: "Disable multi-turn mode. By default sessions stay open for follow-up messages. Set to true for fire-and-forget sessions." }),
-      ),
-      notify_on_turn_end: Type.Optional(
-        Type.Boolean({ description: "Send wake notifications at every turn end. Defaults to true." }),
       ),
       permission_mode: Type.Optional(
         Type.Union(
@@ -145,7 +141,6 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
           resumeSessionId,
           forkSession: resumeSessionId ? params.fork_session : false,
           multiTurn: !params.multi_turn_disabled,
-          notifyOnTurnEnd: params.notify_on_turn_end ?? true,
           permissionMode: params.permission_mode,
           originChannel,
           originThreadId: parseThreadIdFromSessionKey(originSessionKey) ?? resolveOriginThreadId(ctx),
