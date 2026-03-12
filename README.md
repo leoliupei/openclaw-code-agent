@@ -8,7 +8,13 @@ An [OpenClaw](https://openclaw.com) plugin that lets AI agents orchestrate codin
 
 ## Why?
 
-Built-in ACP is useful as a relay bridge for simple one-shot tasks, but it stops short of full orchestration. `openclaw-code-agent` adds an async control layer around coding sessions so you can review plans before execution, persist and resume work later, and run multiple sessions concurrently. It also supports multiple harnesses instead of binding you to a single agent integration. The result is closer to background job orchestration for coding agents than a direct chat-to-agent relay.
+This plugin started as a response to a real gap in OpenClaw's built-in ACP support. At the time, ACP was effectively a raw relay into ACP backends: useful for handing off a prompt, but without the orchestration layer needed for coding-agent work in chat. There was no plan review flow, no plugin-managed pause/resume model, no fork flow, no cost or session stats, and no async notification path back to the originating chat when a session needed input or finished.
+
+ACP has improved since then. OpenClaw core ACP now supports multi-turn sessions, resuming prior work, and a broader set of ACP runtimes and harnesses. That closes part of the original gap.
+
+What still remains is the orchestration layer this plugin was built to provide: propose/revise/approve plan review before execution, forkable coding sessions, dedicated session catalog + operator-facing stats, cost accounting, and an explicit async notification pipeline that wakes the origin chat only when the job needs attention or completes.
+
+For the current version-pinned breakdown, see [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md).
 
 ## Demo
 <img src="assets/ask-readme.gif" alt="Ask mode demo showing plan review and approval before execution">
@@ -29,7 +35,7 @@ Built-in ACP is useful as a relay bridge for simple one-shot tasks, but it stops
 | [Codex](https://github.com/openai/codex) | ✅ Supported | Full support via `@openai/codex-sdk` thread API |
 | Other agents | 🚧 Planned | Plugin architecture supports adding new harnesses |
 
-> **vs. built-in ACP?** See [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md) for a full breakdown.
+> **vs. built-in ACP?** See [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md) for the current version-pinned breakdown.
 
 ---
 
