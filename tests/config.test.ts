@@ -215,7 +215,7 @@ describe("setPluginConfig", () => {
 
   it("uses defaults for missing numeric fields", () => {
     setPluginConfig({});
-    assert.equal(pluginConfig.maxSessions, 5);
+    assert.equal(pluginConfig.maxSessions, 20);
     assert.equal(pluginConfig.idleTimeoutMinutes, 15);
     assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
     assert.equal(pluginConfig.maxPersistedSessions, 10000);
@@ -246,7 +246,7 @@ describe("setPluginConfig", () => {
   it("handles empty object input", () => {
     setPluginConfig({});
     // Should not throw, and all defaults should be applied
-    assert.equal(pluginConfig.maxSessions, 5);
+    assert.equal(pluginConfig.maxSessions, 20);
     assert.equal(pluginConfig.planApproval, "delegate");
   });
 });
@@ -284,7 +284,7 @@ describe("resolveOriginThreadId", () => {
 describe("pluginConfig singleton", () => {
   it("pluginConfig reflects initial defaults after reset", () => {
     setPluginConfig({});
-    assert.equal(pluginConfig.maxSessions, 5);
+    assert.equal(pluginConfig.maxSessions, 20);
     assert.equal(pluginConfig.idleTimeoutMinutes, 15);
     assert.equal(pluginConfig.sessionGcAgeMinutes, 1440);
     assert.equal(pluginConfig.maxPersistedSessions, 10000);
@@ -300,6 +300,6 @@ describe("pluginConfig singleton", () => {
     assert.equal(pluginConfig.maxSessions, 99);
     // Reset for other tests
     setPluginConfig({});
-    assert.equal(pluginConfig.maxSessions, 5);
+    assert.equal(pluginConfig.maxSessions, 20);
   });
 });

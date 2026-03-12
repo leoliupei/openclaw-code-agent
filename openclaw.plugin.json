@@ -9,7 +9,7 @@
     "properties": {
       "maxSessions": {
         "type": "number",
-        "default": 5
+        "default": 20
       },
       "defaultModel": {
         "type": "string",

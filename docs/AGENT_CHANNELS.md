@@ -175,7 +175,7 @@ Edit `~/.openclaw/openclaw.json`:
   "plugins": {
     "config": {
       "openclaw-code-agent": {
-        "maxSessions": 5,
+        "maxSessions": 20,
         "agentChannels": {
           "/home/user/agent-seo": "telegram|seo-bot|1111111111",
           "/home/user/agent-dev": "telegram|dev-bot|2222222222"

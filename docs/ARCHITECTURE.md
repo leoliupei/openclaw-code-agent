@@ -38,6 +38,7 @@ User (Telegram/Discord) → OpenClaw Gateway → Agent → Plugin Tools → Codi
 - **CodexHarness** — wraps `@openai/codex-sdk` (`Codex` + `Thread`) and maps SDK stream events to harness messages
   - Streams SDK events (`thread.started`, `turn.started`, `turn.completed`, `turn.failed`, `item.*`)
   - Uses a soft first-turn planning prompt when launched with `permissionMode: "plan"`
+  - Operational recommendation: prefer Codex auth config `forced_login_method = "chatgpt"` to keep the harness on the ChatGPT login path and avoid account/auth mismatches
   - Emits synthetic tool-use events only for waiting-for-user detection
   - Uses per-turn `AbortController` wiring for `interrupt()` and external abort propagation
   - Emits `activity` heartbeats while turns are in-flight (keeps idle timers from false-killing silent long turns)
@@ -48,7 +49,7 @@ User (Telegram/Discord) → OpenClaw Gateway → Agent → Plugin Tools → Codi
 - Registry: `registerHarness()` / `getHarness(name)` / `getDefaultHarness()` reads `defaultHarness` config (default: `"claude-code"`)
 - Permission mode mapping:
   - Claude Code uses SDK permission modes (`default` / `plan` / `acceptEdits` / `bypassPermissions`)
-  - Codex always uses SDK thread options `sandboxMode: "danger-full-access"` and `approvalPolicy: "never"`; `plan` is implemented as a soft first-turn planning prompt and is not surfaced as plan state in the session API/UI
+  - Codex always uses SDK thread option `sandboxMode: "danger-full-access"` and defaults to `approvalPolicy: "on-request"` unless plugin config sets `codexApprovalPolicy: "never"`; `plan` is implemented as a soft first-turn planning prompt and is not surfaced as plan state in the session API/UI
 
 ### 3. Session (`src/session.ts`)
 - Wraps a single coding agent process via the configured `AgentHarness`
@@ -174,7 +175,7 @@ Controls how the orchestrator handles plans when a coding agent calls `ExitPlanM
 ## Configuration
 
 See `openclaw.plugin.json` for full config schema. Key settings:
-- `maxSessions` (5) — concurrent session limit
+- `maxSessions` (20) — concurrent session limit
 - `fallbackChannel` — default notification target
 - `idleTimeoutMinutes` (15) — auto-kill for idle multi-turn sessions
 - `defaultHarness` (`"claude-code"`) — default agent harness (`"claude-code"` or `"codex"`)

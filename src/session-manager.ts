@@ -105,7 +105,7 @@ export class SessionManager {
   private readonly metrics: SessionMetricsRecorder;
   private readonly wakeDispatcher: WakeDispatcher;
 
-  constructor(maxSessions: number = 5, maxPersistedSessions: number = 50) {
+  constructor(maxSessions: number = 20, maxPersistedSessions: number = 50) {
     this.maxSessions = maxSessions;
     this.maxPersistedSessions = maxPersistedSessions;
     this.store = new SessionStore();

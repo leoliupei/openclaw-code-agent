@@ -104,7 +104,7 @@ When responding to a session that was killed due to idle timeout (`idle-timeout`
 
 - Claude Code harness: passes `default` / `plan` / `acceptEdits` / `bypassPermissions` through SDK permissions.
 - Codex harness:
-  - Always uses SDK thread options: `sandboxMode: "danger-full-access"` and `approvalPolicy: "never"`
+  - Always uses SDK thread option `sandboxMode: "danger-full-access"` and defaults to `approvalPolicy: "on-request"` unless plugin config sets `codexApprovalPolicy: "never"`
   - In `bypassPermissions`, adds filesystem root plus `OPENCLAW_CODEX_BYPASS_ADDITIONAL_DIRS` entries to SDK `additionalDirectories`
   - `plan` / `acceptEdits` are orchestration behaviors (plan approval flow), not SDK sandbox restrictions
   - Session continuation uses `codex.resumeThread(<thread-id>, options)` under the hood

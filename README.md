@@ -77,7 +77,7 @@ Add to `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-agent"]
         "enabled": true,
         "config": {
           "fallbackChannel": "telegram|my-bot|123456789",
-          "maxSessions": 5
+          "maxSessions": 20
         }
       }
     }
@@ -86,6 +86,16 @@ Add to `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-agent"]
 ```
 
 Replace `my-bot` with your Telegram bot account name and `123456789` with your Telegram chat ID.
+
+### 2a. Codex auth safety
+
+If you run Codex sessions, strongly recommend forcing ChatGPT login in your Codex config:
+
+```toml
+forced_login_method = "chatgpt"
+```
+
+Put that in `~/.codex/config.toml`. This keeps Codex on the ChatGPT auth path and avoids account/login mismatches that can surface as unsupported-model or auth failures.
 
 ### 3. Typical workflow
 
@@ -196,7 +206,7 @@ Set values in `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-
 |--------|------|---------|-------------|
 | `agentChannels` | `object` | — | Map workdir paths → notification channels (see [docs/AGENT_CHANNELS.md](docs/AGENT_CHANNELS.md)) |
 | `fallbackChannel` | `string` | — | Default notification channel when no workspace match found |
-| `maxSessions` | `number` | `5` | Maximum concurrent sessions |
+| `maxSessions` | `number` | `20` | Maximum concurrent sessions |
 | `maxAutoResponds` | `number` | `10` | Max consecutive auto-responds before requiring user input |
 | `permissionMode` | `string` | `"plan"` | Plugin orchestration mode: `"default"` / `"plan"` / `"acceptEdits"` / `"bypassPermissions"` |
 | `idleTimeoutMinutes` | `number` | `15` | Idle timeout before auto-kill |

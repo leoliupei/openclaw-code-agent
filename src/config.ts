@@ -26,7 +26,7 @@ export function getGlobalMcpServers(): McpServerConfig {
 // -- Plugin config singleton --
 
 export let pluginConfig: PluginConfig = {
-  maxSessions: 5,
+  maxSessions: 20,
   idleTimeoutMinutes: 15,
   sessionGcAgeMinutes: 1440,
   maxPersistedSessions: 10000,
@@ -40,7 +40,7 @@ export let pluginConfig: PluginConfig = {
 /** Replace plugin config singleton with defaults applied for omitted fields. */
 export function setPluginConfig(config: Partial<PluginConfig>): void {
   pluginConfig = {
-    maxSessions: config.maxSessions ?? 5,
+    maxSessions: config.maxSessions ?? 20,
     defaultModel: config.defaultModel,
     model: config.model,
     reasoningEffort: config.reasoningEffort ?? "medium",
