@@ -122,11 +122,31 @@ describe("executeRespond — auto-resume", () => {
     assert.ok(result.text.includes("failed"));
   });
 
-  it("does NOT auto-resume a killed session with user reason", async () => {
+  it("auto-resumes a killed session with user reason", async () => {
+    let spawnCalled = false;
     const session = createStubSession({
       status: "killed",
       killReason: "user",
       harnessSessionId: "harness-111",
+      name: "user-killed-session",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    sm.spawn = (config: any) => {
+      spawnCalled = true;
+      assert.equal(config.resumeSessionId, "harness-111");
+      return createStubSession({ name: "user-killed-session", id: "new-id" });
+    };
+    const result = await executeRespond(sm, { session: "test-id", message: "continue" });
+    assert.ok(spawnCalled, "spawn should have been called");
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.ok(result.text.includes("user-killed"));
+  });
+
+  it("does NOT auto-resume a killed session with startup-timeout reason", async () => {
+    const session = createStubSession({
+      status: "killed",
+      killReason: "startup-timeout",
+      harnessSessionId: "harness-startup",
     });
     const sm = createStubSessionManager({ "test-id": session });
     const result = await executeRespond(sm, { session: "test-id", message: "hello" });
@@ -171,6 +191,20 @@ describe("executeRespond — auto-resume", () => {
     const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
     assert.ok(result.text.includes("Auto-resumed"));
     assert.ok(result.text.includes("idle-kill"));
+  });
+
+  it("auto-resumes a shutdown-killed session with shutdown-killed label", async () => {
+    const session = createStubSession({
+      status: "killed",
+      killReason: "shutdown",
+      harnessSessionId: "harness-shutdown-label",
+      name: "shutdown-session",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    sm.spawn = () => createStubSession({ name: "shutdown-session", id: "new-id" });
+    const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.ok(result.text.includes("shutdown-killed"));
   });
 
   it("auto-resumes a persisted shutdown-killed session after restart", async () => {
@@ -288,7 +322,7 @@ describe("executeRespond — auto-resume", () => {
     assert.ok(byHarness.text.includes("Auto-resumed"));
   });
 
-  it("does NOT auto-resume a persisted user-killed session after restart", async () => {
+  it("auto-resumes a persisted user-killed session after restart", async () => {
     const sm = createStubSessionManager();
     sm.persisted.set("harness-user", {
       sessionId: "old-user",
@@ -304,10 +338,16 @@ describe("executeRespond — auto-resume", () => {
     });
     sm.idIndex.set("old-user", "harness-user");
 
+    let capturedConfig: any;
+    sm.spawn = (config: any) => {
+      capturedConfig = config;
+      return createStubSession({ name: "user-killed", id: "new-id" });
+    };
+
     const result = await executeRespond(sm, { session: "old-user", message: "continue" });
-    assert.equal(result.isError, true);
+    assert.ok(result.text.includes("Auto-resumed"));
     assert.ok(result.text.includes("user-killed"));
-    assert.ok(result.text.includes("not running"));
+    assert.equal(capturedConfig.resumeSessionId, "harness-user");
   });
 });
 

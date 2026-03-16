@@ -209,7 +209,7 @@ Use `agent_kill(reason: "completed")` when:
 - After a turn completes without a question, the session is immediately **paused** (killed with reason `done`, auto-resumable).
 - On the next `agent_respond` to a completed or idle-killed session, the plugin **auto-resumes** by spawning a new session with the same session ID — conversation context is preserved.
 - Sessions idle for `idleTimeoutMinutes` (default: 15 min) are killed with reason `idle-timeout` and also auto-resume on next respond.
-- Sessions killed explicitly by the user (`agent_kill` without `reason: "completed"`) do NOT auto-resume.
+- Sessions killed for any reason except `startup-timeout` auto-resume on next `agent_respond`. This includes user-killed sessions (`agent_kill`), shutdown-killed sessions (gateway restart), and idle-timeout sessions.
 
 ### Timeouts
 

@@ -19,7 +19,7 @@ interface RespondResult {
 }
 
 const AUTO_RESUMABLE_STATUSES = new Set(["killed", "completed", "failed"]);
-const AUTO_RESUMABLE_REASONS = new Set(["idle-timeout", "shutdown", "done"]);
+const NON_RESUMABLE_KILL_REASONS = new Set(["startup-timeout"]);
 const DEFAULT_MAX_AUTO_RESPONDS = 10;
 const SIMPLE_APPROVAL_MAX_CHARS = 100;
 const REVISION_KEYWORDS_RE = /\b(change|swap|replace|remove|add|update|instead|don't|revise|modify)\b/i;
@@ -28,11 +28,15 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function getResumeLabel(status: string): string {
+function getResumeLabel(status: string, killReason?: string): string {
   switch (status) {
     case "completed": return "completed";
     case "failed": return "failed";
-    default: return "idle-kill";
+    default: {
+      if (killReason === "user") return "user-killed";
+      if (killReason === "shutdown") return "shutdown-killed";
+      return "idle-kill";
+    }
   }
 }
 
@@ -56,7 +60,7 @@ function canAutoResume(session: ResumableSession, allowRecoveredRunningStub: boo
       || (
         session.status === "killed"
         && (
-          AUTO_RESUMABLE_REASONS.has(session.killReason ?? "")
+          !NON_RESUMABLE_KILL_REASONS.has(session.killReason ?? "")
           || (allowRecoveredRunningStub && isRecoveredRunningStub(session as PersistedSessionInfo))
         )
       )
@@ -121,7 +125,7 @@ async function tryAutoResume(
       harness: "harnessName" in session ? session.harnessName : session.harness,
     };
     const resumed = sm.spawn(resumeConfig);
-    const resumeLabel = getResumeLabel(session.status);
+    const resumeLabel = getResumeLabel(session.status, session.killReason);
     sm.notifySession(resumed, `🔄 [${resumed.name}] Auto-resumed from ${resumeLabel}`);
     return { text: `Auto-resumed ${resumeLabel} session ${resumed.name} [${resumed.id}]. Use agent_output to see the response.` };
   } catch (err: unknown) {

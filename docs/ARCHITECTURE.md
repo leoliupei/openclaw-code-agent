@@ -86,7 +86,7 @@ User (Telegram/Discord) → OpenClaw Gateway → Agent → Plugin Tools → Codi
 
 ### 6. Shared Respond Action (`src/actions/respond.ts`)
 - Centralizes all respond logic used by both `agent_respond` tool and `/agent_respond` command
-- Auto-resume for idle-killed sessions (`done`, idle-timeout)
+- Auto-resume for killed sessions (all kill reasons except `startup-timeout`)
 - Permission mode switch (plan → bypassPermissions on approval keywords)
 - Auto-respond counter management
 
@@ -117,14 +117,15 @@ If wake metadata is incomplete:
   → Orchestrator agent wakes up, reads output, forwards to user
 ```
 
-### Idle-Kill + Auto-Resume
+### Kill + Auto-Resume
 ```
 Turn completes without a question → session.complete("done") immediately
   → SessionManager persists harnessSessionId
   → No 💤 notification (🔄 Turn done already sent)
 
-On next agent_respond:
-  → actions/respond.ts detects terminal status + auto-resume reason + harnessSessionId
+On next agent_respond to any killed/completed/failed session:
+  → actions/respond.ts detects terminal status + harnessSessionId
+  → All kill reasons except startup-timeout are auto-resumable
   → Auto-spawns new session with same harnessSessionId silently
   → Conversation context preserved
 

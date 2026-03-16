@@ -98,7 +98,7 @@ The plugin tracks how many times an agent auto-responds to a session. When the c
 
 ### Auto-Resume
 
-When responding to a session that was killed due to idle timeout (`idle-timeout` or `done`), the plugin automatically spawns a new session with the same harness session ID, preserving conversation context. Sessions killed explicitly by the user (`agent_kill`) do NOT auto-resume.
+When responding to a session that has been killed, the plugin automatically spawns a new session with the same harness session ID, preserving conversation context. Sessions killed for any reason — including by the user (`agent_kill`), gateway restart (`shutdown`), or idle timeout — auto-resume on the next `agent_respond`. The only exception is `startup-timeout` (sessions that failed to start), which do not auto-resume to avoid retry loops.
 
 ### Permission Modes By Harness
 
