@@ -33,7 +33,7 @@ export function makeAgentRespondTool(_ctx?: OpenClawPluginToolContext) {
         Type.Boolean({ description: "Set to true when the message comes from the user (not auto-generated). Resets the auto-respond counter and bypasses the auto-respond limit." }),
       ),
       approve: Type.Optional(
-        Type.Boolean({ description: "Set to true to approve a pending plan and switch the session from plan mode to bypassPermissions. Only works when the session has a pending plan approval (after ExitPlanMode / set_permission_mode). To request changes instead, omit this flag — the message will be sent as revision feedback and the agent will revise the plan." }),
+        Type.Boolean({ description: "Set to true to escalate session permissions to bypassPermissions. Works in two scenarios: (1) approve a pending plan in plan mode (after ExitPlanMode / set_permission_mode), or (2) escalate an acceptEdits or default mode session to skip all remaining permission prompts. No-op if already in bypassPermissions mode. In plan mode without a pending plan, this flag is ignored." }),
       ),
     }),
     async execute(_id: string, params: unknown) {

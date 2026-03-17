@@ -482,6 +482,83 @@ describe("executeRespond — plan approval", () => {
   });
 });
 
+describe("executeRespond — acceptEdits / default escalation", () => {
+  it("calls switchPermissionMode when approve=true and mode is acceptEdits", async () => {
+    let modeSwitched: string | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "acceptEdits",
+      switchPermissionMode(mode: string) { modeSwitched = mode; },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.equal(modeSwitched, "bypassPermissions");
+    assert.ok(result.text.includes("Message sent"));
+    assert.ok(!result.text.includes("⚠️"), "should not have approval warning");
+  });
+
+  it("calls switchPermissionMode when approve=true and mode is default", async () => {
+    let modeSwitched: string | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "default",
+      switchPermissionMode(mode: string) { modeSwitched = mode; },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.equal(modeSwitched, "bypassPermissions");
+    assert.ok(result.text.includes("Message sent"));
+  });
+
+  it("no-ops with info when approve=true and mode is already bypassPermissions", async () => {
+    let modeSwitched: string | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "bypassPermissions",
+      switchPermissionMode(mode: string) { modeSwitched = mode; },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.equal(modeSwitched, undefined, "should not switch mode");
+    assert.ok(result.text.includes("already in bypassPermissions"));
+  });
+
+  it("pendingPlanApproval takes priority over acceptEdits escalation", async () => {
+    // Edge case: acceptEdits + pendingPlanApproval + approve all true.
+    // The plan-approval branch (line 226 in respond.ts) fires first, calling
+    // switchPermissionMode("bypassPermissions") AND applying validateApprovalMessage.
+    // The acceptEdits branch (line 233) does NOT fire.
+    let modeSwitched: string | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: true,
+      currentPermissionMode: "acceptEdits",
+      switchPermissionMode(mode: string) { modeSwitched = mode; },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    const result = await executeRespond(sm, {
+      session: "test-id",
+      message: "Looks good!",
+      approve: true,
+    });
+    // switchPermissionMode was called via the plan approval path
+    assert.equal(modeSwitched, "bypassPermissions");
+    // No error returned
+    assert.ok(!result.isError, "should not return an error");
+    // No spurious warning about "no pending plan approval"
+    assert.ok(!result.text.includes("approve=true was set but"), "should not warn about no pending plan approval");
+  });
+
+  it("still warns when approve=true in plan mode without pendingPlanApproval", async () => {
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "plan",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.ok(result.text.includes("approve=true was set but"));
+  });
+});
+
 describe("executeRespond — Lobster token handling", () => {
   it("consumes token and returns early on approval", async () => {
     let resumedToken: string | undefined;
@@ -557,8 +634,68 @@ describe("executeRespond — Lobster token handling", () => {
     assert.ok(result.text.includes("Lobster workflow resuming"));
     assert.equal(session.lobsterResumeToken, undefined, "token should be consumed");
     // Wait for the async fallback to execute
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 200));
     assert.equal(modeSwitched, "bypassPermissions", "fallback should switch mode");
+  });
+
+  it("consumes token and resumes Lobster when approve=true in acceptEdits mode", async () => {
+    let resumedToken: string | undefined;
+    let resumedApprove: boolean | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "acceptEdits",
+      lobsterResumeToken: "tok-accept",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    (sm as any).resumeLobsterApproval = async (token: string, approve: boolean) => {
+      resumedToken = token;
+      resumedApprove = approve;
+    };
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.equal(resumedToken, "tok-accept");
+    assert.equal(resumedApprove, true);
+    assert.equal(session.lobsterResumeToken, undefined, "token should be consumed");
+    assert.ok(result.text.includes("Lobster workflow resuming"));
+  });
+
+  it("consumes token and resumes Lobster when approve=true in default mode", async () => {
+    let resumedToken: string | undefined;
+    let resumedApprove: boolean | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "default",
+      lobsterResumeToken: "tok-default",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    (sm as any).resumeLobsterApproval = async (token: string, approve: boolean) => {
+      resumedToken = token;
+      resumedApprove = approve;
+    };
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    assert.equal(resumedToken, "tok-default");
+    assert.equal(resumedApprove, true);
+    assert.equal(session.lobsterResumeToken, undefined, "token should be consumed");
+    assert.ok(result.text.includes("Lobster workflow resuming"));
+  });
+
+  it("does not resume Lobster when approve=true in bypassPermissions mode", async () => {
+    let resumedApprove: boolean | undefined;
+    let messageSent: string | undefined;
+    const session = createStubSession({
+      pendingPlanApproval: false,
+      currentPermissionMode: "bypassPermissions",
+      lobsterResumeToken: "tok-bypass",
+      sendMessage: async (text: string) => { messageSent = text; },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+    (sm as any).resumeLobsterApproval = async (_token: string, approve: boolean) => {
+      resumedApprove = approve;
+    };
+    const result = await executeRespond(sm, { session: "test-id", message: "Go ahead", approve: true });
+    // canEscalate is false, so Lobster cancel path runs, then falls through to normal flow
+    assert.equal(resumedApprove, false, "should cancel Lobster, not approve");
+    assert.equal(session.lobsterResumeToken, undefined, "token should be consumed");
+    assert.ok(result.text.includes("already in bypassPermissions"), "should hit the bypassPermissions no-op in normal flow");
   });
 });
 

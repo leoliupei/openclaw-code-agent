@@ -144,7 +144,10 @@ function handleLobsterToken(
   // Consume BEFORE resume to prevent re-entry loops.
   session.lobsterResumeToken = undefined;
 
-  if (params.approve && session.pendingPlanApproval) {
+  const canEscalate = session.pendingPlanApproval
+    || session.currentPermissionMode === "acceptEdits"
+    || session.currentPermissionMode === "default";
+  if (params.approve && canEscalate) {
     sm.resumeLobsterApproval(lobsterToken, true).catch((err: unknown) => {
       // Fallback: direct mode switch if Lobster fails.
       console.error(`[Respond] Lobster resume failed, falling back to direct mode switch: ${errorMessage(err)}`);
@@ -218,14 +221,21 @@ export async function executeRespond(
       await session.interrupt();
     }
 
-    // Plan approval — explicit approve flag
+    // Permission escalation — explicit approve flag
     let approvalWarning = "";
     if (params.approve && session.pendingPlanApproval) {
+      // Plan mode approval (existing behavior)
       const invalidApprovalResult = validateApprovalMessage(session.name, params.message);
       if (invalidApprovalResult) {
         return invalidApprovalResult;
       }
       session.switchPermissionMode("bypassPermissions");
+    } else if (params.approve && (session.currentPermissionMode === "acceptEdits" || session.currentPermissionMode === "default")) {
+      // Non-plan mode escalation — switch to bypassPermissions
+      session.switchPermissionMode("bypassPermissions");
+    } else if (params.approve && session.currentPermissionMode === "bypassPermissions") {
+      // Already at maximum permissions — no-op, just inform
+      approvalWarning = `\nℹ️ approve=true was set but session is already in bypassPermissions mode.`;
     } else if (params.approve) {
       approvalWarning = `\n⚠️ approve=true was set but session has no pending plan approval.`;
     } else if (session.pendingPlanApproval) {

@@ -246,6 +246,20 @@ Notifications are routed to the Telegram thread/topic where the session was laun
 
 Sessions start in `plan` mode by default. When you reply with **only** an approval keyword as the **entire message** (`"go ahead"`, `"implement"`, `"looks good"`, `"approved"`, `"lgtm"`, `"do it"`, `"proceed"`, `"execute"`, `"ship it"`), the plugin switches the session to `bypassPermissions` mode. The message must contain **only** the keyword — extra text will prevent the switch. To approve and also give instructions, send the approval keyword first, then send implementation details as a separate follow-up message.
 
+### Permission escalation with `approve: true`
+
+The `approve` parameter on `agent_respond` escalates session permissions to `bypassPermissions`. It works in two scenarios:
+
+1. **Plan mode approval**: When a session has a pending plan approval (after `ExitPlanMode` / `set_permission_mode`), `approve: true` approves the plan and switches to `bypassPermissions`.
+2. **`acceptEdits` / `default` mode escalation**: When a session is in `acceptEdits` or `default` mode and keeps prompting for shell/exec command permissions, `approve: true` escalates to `bypassPermissions` to skip all remaining prompts.
+
+If the session is already in `bypassPermissions` mode, `approve: true` is a no-op. In `plan` mode without a pending plan, it is ignored.
+
+```
+# Escalate an acceptEdits session that keeps prompting for bash permissions
+agent_respond(session: "fix-auth", message: "proceed", approve: true)
+```
+
 ### Plan approval modes
 
 The `planApproval` config controls how the orchestrator handles plan-approval events:
@@ -324,5 +338,5 @@ When a session completes, keep summaries brief:
 | `agent_sessions` | List sessions | `status` (all/running/completed/failed/killed) |
 | `agent_output` | Read the output | `session`, `full`, `lines` |
 | `agent_kill` | Kill or complete a session | `session`, `reason` (`"completed"` or omit) |
-| `agent_respond` | Send a follow-up | `session`, `message`, `interrupt` |
+| `agent_respond` | Send a follow-up | `session`, `message`, `interrupt`, `approve` |
 | `agent_stats` | Usage metrics | none |
