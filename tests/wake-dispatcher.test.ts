@@ -246,4 +246,93 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
       "now",
     ]]);
   });
+
+  it("routes Discord channel session key to message.send with channel: prefix", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-6",
+      originSessionKey: "agent:main:discord:channel:1481874223294054540",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "launch",
+      userMessage: "🚀 launched",
+      notifyUser: "always",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    const params = parseMessageSendArgs(calls[0] ?? []);
+    assert.equal(params.channel, "discord");
+    assert.equal(params.target, "channel:1481874223294054540");
+    assert.equal(params.message, "🚀 launched");
+  });
+
+  it("routes Discord DM session key to message.send with user: prefix", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-7",
+      originSessionKey: "agent:main:discord:dm:774236449288749097",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "launch",
+      userMessage: "🚀 launched",
+      notifyUser: "always",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    const params = parseMessageSendArgs(calls[0] ?? []);
+    assert.equal(params.channel, "discord");
+    assert.equal(params.target, "user:774236449288749097");
+    assert.equal(params.message, "🚀 launched");
+  });
+
+  it("enriches bare numeric Discord originChannel with channel: prefix", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-8",
+      originChannel: "discord|1481874223294054540",
+      originSessionKey: "agent:main:discord:channel:1481874223294054540",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "launch",
+      userMessage: "🚀 launched",
+      notifyUser: "always",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    const params = parseMessageSendArgs(calls[0] ?? []);
+    assert.equal(params.channel, "discord");
+    assert.equal(params.target, "channel:1481874223294054540");
+    assert.equal(params.message, "🚀 launched");
+  });
+
+  it("preserves existing Telegram routing when Discord sessions are added", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-9",
+      originChannel: "telegram|bot|12345",
+      originThreadId: 11239,
+      originSessionKey: "agent:main:telegram:group:-1003863755361:topic:11239",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "launch",
+      userMessage: "🚀 launched",
+      notifyUser: "always",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    const params = parseMessageSendArgs(calls[0] ?? []);
+    assert.equal(params.channel, "telegram");
+    assert.equal(params.account, "bot");
+    assert.equal(params.target, "12345");
+    assert.equal(params.message, "🚀 launched");
+    assert.equal(params["thread-id"], "11239");
+  });
 });
