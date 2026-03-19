@@ -43,7 +43,7 @@ For the current version-pinned breakdown, see [docs/ACP-COMPARISON.md](docs/ACP-
 
 - **Multi-session management** — Run multiple concurrent coding agent sessions, each with a unique ID and human-readable name
 - **Plan → Execute workflow** — Claude Code sessions expose plan mode; Codex uses a soft first-turn planning prompt while staying externally in implement mode
-- **Real Codex approval policy support** — Codex sessions default to the real Codex SDK/CLI `approvalPolicy: "on-request"` and can be pinned back to `"never"` in plugin config
+- **Real Codex approval policy support** — Codex sessions default to the real Codex SDK/CLI `approvalPolicy: "on-request"` and can be pinned back to `"never"` via `harnesses.codex.approvalPolicy`
 - **Thread-based routing** — Notifications go to the Telegram thread/topic where the session was launched
 - **Pause + auto-resume** — Non-question turn completion pauses sessions (`done`) and next `agent_respond` auto-resumes with context intact
 - **Turn-end wake signaling** — Every turn end emits a deterministic wake signal with output preview and waiting hint
@@ -83,7 +83,19 @@ Add to `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-agent"]
         "enabled": true,
         "config": {
           "fallbackChannel": "telegram|my-bot|123456789",
-          "maxSessions": 20
+          "maxSessions": 20,
+          "harnesses": {
+            "codex": {
+              "defaultModel": "gpt-5.4",
+              "allowedModels": ["gpt-5.4"],
+              "reasoningEffort": "medium",
+              "approvalPolicy": "on-request"
+            },
+            "claude-code": {
+              "defaultModel": "sonnet",
+              "allowedModels": ["sonnet", "opus"]
+            }
+          }
         }
       }
     }
@@ -179,7 +191,7 @@ The plugin sends targeted notifications to the originating Telegram thread:
 - **Claude Code** starts in `plan` mode by default. Approve a pending plan with `agent_respond(..., approve=true)` and the session switches to `bypassPermissions`.
 - **Codex** does not surface `plan` or `awaiting-plan-approval` in session state. When launched with `permissionMode: "plan"`, its first turn is prompted to return a plan and ask whether to proceed, while the exposed session phase remains implementation-oriented.
 - For **Codex**, plugin `permissionMode` is a plugin-orchestrated planning/approval workflow. It is not the same thing as the Codex SDK/CLI `approvalPolicy`.
-- The real Codex SDK/CLI approval behavior is controlled by plugin config `codexApprovalPolicy`. Supported values are `"on-request"` (default) and `"never"`.
+- The real Codex SDK/CLI approval behavior is controlled by `harnesses.codex.approvalPolicy`. Supported values are `"on-request"` (default) and `"never"`.
 
 On approval, the plugin prepends a system instruction telling the agent to exit plan mode and implement with full permissions.
 
@@ -219,11 +231,8 @@ Set values in `~/.openclaw/openclaw.json` under `plugins.entries["openclaw-code-
 | `sessionGcAgeMinutes` | `number` | `1440` | TTL for completed/failed/killed runtime sessions before GC eviction |
 | `maxPersistedSessions` | `number` | `10000` | Max completed sessions kept for resume; the 24h GC TTL (`sessionGcAgeMinutes`) is the primary retention control |
 | `planApproval` | `string` | `"delegate"` | `"approve"` (orchestrator can auto-approve) / `"ask"` (always forward to user) / `"delegate"` (orchestrator decides) |
-| `codexApprovalPolicy` | `string` | `"on-request"` | Codex-only real SDK/CLI approval policy: `"on-request"` by default, or `"never"` for fully non-interactive Codex approval behavior |
 | `defaultHarness` | `string` | `"claude-code"` | Default harness for new sessions (`"claude-code"` / `"codex"`) |
-| `model` | `string` | — | Codex-only model override for new sessions (for example `"gpt-5.3-codex"`). Used when no explicit `model` is passed to `agent_launch`; falls back to `defaultModel` if unset |
-| `reasoningEffort` | `string` | `"medium"` | Codex-only reasoning effort: `"low"`, `"medium"`, or `"high"` |
-| `defaultModel` | `string` | — | Default model for new sessions (e.g. `"sonnet"`, `"opus"`) |
+| `harnesses` | `object` | built-in defaults | Per-harness defaults and restrictions. Built-in defaults: `claude-code.defaultModel = "sonnet"`, `claude-code.allowedModels = ["sonnet","opus"]`, `codex.defaultModel = "gpt-5.4"`, `codex.allowedModels = ["gpt-5.4"]`, `codex.reasoningEffort = "medium"`, `codex.approvalPolicy = "on-request"` |
 | `defaultWorkdir` | `string` | — | Default working directory for new sessions |
 
 ### Permission Mode Mapping By Harness
@@ -234,8 +243,8 @@ Permission modes are shared at the plugin API, but each harness maps them differ
   - `default`, `plan`, `acceptEdits`, `bypassPermissions` are passed through the SDK
 - **Codex harness**
   - Always runs with SDK thread option `sandboxMode: "danger-full-access"`
-  - Uses Codex SDK/CLI `approvalPolicy: "on-request"` by default, or `"never"` when `codexApprovalPolicy` is set
-  - Supports plugin config `model`, `reasoningEffort`, and `codexApprovalPolicy` defaults for Codex SDK thread launches
+  - Uses Codex SDK/CLI `approvalPolicy: "on-request"` by default, or `"never"` when `harnesses.codex.approvalPolicy` is set
+  - Supports `harnesses.codex.defaultModel`, `harnesses.codex.allowedModels`, `harnesses.codex.reasoningEffort`, and `harnesses.codex.approvalPolicy`
   - In `bypassPermissions`, the harness adds filesystem root (`/` on POSIX) to Codex `additionalDirectories`, plus optional extras from `OPENCLAW_CODEX_BYPASS_ADDITIONAL_DIRS` (comma-separated)
   - `setPermissionMode()` is applied by recreating the thread on the next turn via `resumeThread` (same thread ID)
   - `plan` / `acceptEdits` remain plugin behavioral orchestration constraints (planning/approval flow), not Codex sandbox or SDK approval settings
@@ -264,10 +273,18 @@ Permission modes are shared at the plugin API, but each harness maps them differ
         "enabled": true,
         "config": {
           "maxSessions": 3,
-          "model": "gpt-5.3-codex",
-          "reasoningEffort": "high",
-          "codexApprovalPolicy": "on-request",
-          "defaultModel": "sonnet",
+          "harnesses": {
+            "codex": {
+              "defaultModel": "gpt-5.4",
+              "allowedModels": ["gpt-5.4"],
+              "reasoningEffort": "high",
+              "approvalPolicy": "on-request"
+            },
+            "claude-code": {
+              "defaultModel": "sonnet",
+              "allowedModels": ["sonnet", "opus"]
+            }
+          },
           "permissionMode": "plan",
           "fallbackChannel": "telegram|my-bot|123456789",
           "agentChannels": {

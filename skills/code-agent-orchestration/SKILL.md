@@ -39,9 +39,43 @@ You orchestrate coding agent sessions via the `openclaw-code-agent`. Each sessio
 | `channel` | **Do NOT pass.** Resolved automatically via `agentChannels`. |
 | `workdir` | Always when the project is not in the `defaultWorkdir`. |
 | `multi_turn` | `true` by default unless explicitly one-shot. |
-| `model` | When you want to force a specific model (`"sonnet"`, `"opus"`). |
+| `model` | When you want to force a specific model (`"sonnet"`, `"opus"`, `"gpt-5.4"`). Subject to `harnesses.<name>.allowedModels` restrictions if configured. |
 | `system_prompt` | To inject project-specific context. |
 | `permission_mode` | `"plan"` by default. `"bypassPermissions"` for trusted tasks. |
+
+### Harness-scoped model restrictions
+
+The plugin config restricts models per harness via `harnesses.<name>.allowedModels`:
+
+- **Matching:** Case-insensitive substring matching (e.g., `"sonnet"` matches `"claude-sonnet-4-6"`)
+- **Explicit model blocked:** If a caller explicitly requests a model not in that harness's `allowedModels`, the launch fails with an error
+- **Default model blocked:** If no model is specified and the resolved `harnesses.<name>.defaultModel` is not in `allowedModels`, the launch fails with a config error
+- **Not configured:** If `allowedModels` is empty or undefined for that harness, all models are allowed for that harness
+
+**Example configuration:**
+```json
+{
+  "harnesses": {
+    "claude-code": {
+      "defaultModel": "sonnet",
+      "allowedModels": ["sonnet", "haiku"]
+    },
+    "codex": {
+      "defaultModel": "gpt-5.4",
+      "allowedModels": ["gpt-5.4"]
+    }
+  }
+}
+```
+
+This configuration allows Claude models containing "sonnet" or "haiku" in their identifier, and restricts Codex launches to `gpt-5.4`.
+
+**Interaction with harness compatibility:**
+When both `harnesses.<name>.allowedModels` and harness compatibility constraints apply, you must satisfy BOTH:
+1. The model must be in `harnesses.<name>.allowedModels` (if configured)
+2. The model must be compatible with the chosen harness
+
+Example: If `harnesses.claude-code.allowedModels = ["sonnet", "gpt-4"]` and you use the default `claude-code` harness, only "sonnet" will work because "gpt-4" is not a Claude-compatible model.
 
 ### Examples
 
@@ -82,6 +116,19 @@ agent_launch(
   multi_turn: true
 )
 ```
+
+### Harness and model compatibility
+
+| Harness | Supported Models | Examples |
+|---------|-----------------|---------|
+| `claude-code` | Anthropic only | `sonnet`, `opus`, `haiku`, `claude-sonnet-4-6` |
+| `codex` | OpenAI only | `gpt-4`, `gpt-5`, `o1`, `o3-mini` |
+
+- When user says "with sonnet/opus/haiku" → use `harness: "claude-code"` (or omit — it's the default)
+- When user says "with gpt-4/o1/o3" → use `harness: "codex"`
+- **Never** pass Anthropic models to codex harness or OpenAI models to claude-code harness
+
+If `harnesses.<name>.allowedModels` is configured, both explicit model requests and default models outside that list are rejected with an error. When the default model is not allowed, the error message directs you to update the plugin config.
 
 ---
 

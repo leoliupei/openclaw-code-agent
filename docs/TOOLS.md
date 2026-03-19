@@ -32,7 +32,7 @@ Launch a coding agent session in the background to execute a development task. S
 | `prompt` | string | **yes** | — | The task prompt to execute |
 | `name` | string | no | auto-generated | Short kebab-case name (e.g. `fix-auth`). Auto-generated from prompt if omitted |
 | `workdir` | string | no | agent workspace / cwd | Working directory for the session |
-| `model` | string | no | plugin default | Model name to use. For Codex, explicit `model` overrides plugin config `model`, which otherwise falls back to `defaultModel` |
+| `model` | string | no | harness default | Model name to use. If omitted, the plugin uses `harnesses.<selected-harness>.defaultModel` |
 | `system_prompt` | string | no | — | Additional system prompt injected into the session |
 | `allowed_tools` | string[] | no | — | List of allowed tools for the coding agent session |
 | `resume_session_id` | string | no | — | Session ID to resume (from a previous session's `harnessSessionId`). Accepts name, internal ID, or harness UUID — the plugin resolves it |
@@ -104,7 +104,7 @@ When responding to a session that has been killed, the plugin automatically spaw
 
 - Claude Code harness: passes `default` / `plan` / `acceptEdits` / `bypassPermissions` through SDK permissions.
 - Codex harness:
-  - Always uses SDK thread option `sandboxMode: "danger-full-access"` and defaults to `approvalPolicy: "on-request"` unless plugin config sets `codexApprovalPolicy: "never"`
+  - Always uses SDK thread option `sandboxMode: "danger-full-access"` and defaults to `approvalPolicy: "on-request"` unless `harnesses.codex.approvalPolicy` sets `"never"`
   - In `bypassPermissions`, adds filesystem root plus `OPENCLAW_CODEX_BYPASS_ADDITIONAL_DIRS` entries to SDK `additionalDirectories`
   - `plan` / `acceptEdits` are orchestration behaviors (plan approval flow), not SDK sandbox restrictions
   - Session continuation uses `codex.resumeThread(<thread-id>, options)` under the hood
@@ -256,23 +256,38 @@ For `agent_launch` with `resume_session_id`, the plugin additionally checks pers
 
 Settings in `openclaw.plugin.json` that affect tool and session behavior. See `docs/ARCHITECTURE.md` for full config list.
 
-### `model`
+### `harnesses`
 
 | Property | Value |
 |----------|-------|
-| Type | `string` |
-| Default | unset |
+| Type | `object` |
+| Default | `{"claude-code":{"defaultModel":"sonnet","allowedModels":["sonnet","opus"]},"codex":{"defaultModel":"gpt-5.4","allowedModels":["gpt-5.4"],"reasoningEffort":"medium","approvalPolicy":"on-request"}}` |
 
-Codex-only model override. When set, new Codex sessions use this as the default model unless `agent_launch` passes an explicit `model`. If unset, Codex falls back to the generic session `defaultModel` / agent model configuration.
+Per-harness launch defaults and restrictions.
 
-### `reasoningEffort`
+- `harnesses.<name>.defaultModel` sets the model used when `agent_launch` omits `model`
+- `harnesses.<name>.allowedModels` restricts which explicit or default models are accepted for that harness
+- `harnesses.codex.reasoningEffort` controls Codex SDK reasoning effort
+- `harnesses.codex.approvalPolicy` controls Codex SDK/CLI approval behavior
 
-| Property | Value |
-|----------|-------|
-| Type | enum: `low`, `medium`, `high` |
-| Default | `medium` |
+Example:
 
-Codex-only reasoning effort for SDK thread launches. Use `high` for deeper planning, `medium` for balanced behavior, and `low` for faster responses.
+```json
+{
+  "harnesses": {
+    "codex": {
+      "defaultModel": "gpt-5.4",
+      "allowedModels": ["gpt-5.4"],
+      "reasoningEffort": "high",
+      "approvalPolicy": "on-request"
+    },
+    "claude-code": {
+      "defaultModel": "sonnet",
+      "allowedModels": ["sonnet", "opus"]
+    }
+  }
+}
+```
 
 ### `planApproval`
 
