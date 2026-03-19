@@ -2,7 +2,8 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { SessionManager } from "../src/session-manager";
 import { setPluginConfig } from "../src/config";
-import { createStubSession } from "./helpers";
+import { registerHarness } from "../src/harness";
+import { createFakeHarness, createStubSession } from "./helpers";
 
 import { executeRespond } from "../src/actions/respond";
 
@@ -191,6 +192,36 @@ describe("executeRespond — auto-resume", () => {
     const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
     assert.ok(result.text.includes("Auto-resumed"));
     assert.ok(result.text.includes("idle-kill"));
+  });
+
+  it("emits only the auto-resume notification when agent_respond resumes a completed session", async () => {
+    registerHarness(createFakeHarness("respond-resume-harness"));
+
+    const session = createStubSession({
+      id: "completed-id",
+      status: "completed",
+      killReason: "done",
+      harnessSessionId: "harness-resume-only",
+      harnessName: "respond-resume-harness",
+      name: "resume-only",
+      workdir: "/tmp/repo",
+      model: "test-model",
+    });
+    const sm = new SessionManager(5);
+    (sm as any).wakeDispatcher = {
+      dispatchSessionNotification: (...args: any[]) => { ((sm as any).__dispatchCalls ??= []).push(args); },
+    };
+    (sm as any).__dispatchCalls = [];
+    (sm as any).sessions.set(session.id, session);
+
+    const result = await executeRespond(sm, { session: session.id, message: "continue" });
+
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.equal((sm as any).__dispatchCalls.length, 1);
+    const [_resumedSession, request] = (sm as any).__dispatchCalls[0];
+    assert.equal(request.label, "notification");
+    assert.match(request.userMessage, /Auto-resumed from completed/);
+    assert.doesNotMatch(request.userMessage, /Launched/);
   });
 
   it("auto-resumes a shutdown-killed session with shutdown-killed label", async () => {

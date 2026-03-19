@@ -53,6 +53,10 @@ type LobsterResponseShape = {
   details?: { requiresApproval?: { resumeToken?: string } };
 };
 
+type SpawnOptions = {
+  notifyLaunch?: boolean;
+};
+
 /**
  * Extract a Lobster resume token from CLI output.
  *
@@ -131,7 +135,7 @@ export class SessionManager {
   }
 
   /** Spawn and start a new session, wiring lifecycle listeners and launch notification. */
-  spawn(config: SessionConfig): Session {
+  spawn(config: SessionConfig, options: SpawnOptions = {}): Session {
     const activeCount = [...this.sessions.values()].filter(
       (s) => KILLABLE_STATUSES.has(s.status),
     ).length;
@@ -166,9 +170,10 @@ export class SessionManager {
 
     session.start();
 
-    // Send launch notification
-    const launchText = `🚀 [${session.name}] Launched | ${session.workdir} | ${session.model ?? "default"}`;
-    this.notifySession(session, launchText, "launch");
+    if (options.notifyLaunch !== false) {
+      const launchText = `🚀 [${session.name}] Launched | ${session.workdir} | ${session.model ?? "default"}`;
+      this.notifySession(session, launchText, "launch");
+    }
 
     return session;
   }
