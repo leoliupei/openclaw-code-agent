@@ -60,8 +60,7 @@ describe("executeRespond — auto-resume", () => {
     };
     const result = await executeRespond(sm, { session: "test-id", message: "continue" });
     assert.ok(spawnCalled, "spawn should have been called");
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("idle-kill"));
+    assert.equal(result.text, "Auto-resumed session old-session [new-id]. Use agent_output to see the response.");
   });
 
   it("preserves harness and origin routing metadata during auto-resume", async () => {
@@ -106,8 +105,7 @@ describe("executeRespond — auto-resume", () => {
     const sm = createStubSessionManager({ "test-id": session });
     sm.spawn = () => createStubSession({ name: "resumed", id: "new-id" });
     const result = await executeRespond(sm, { session: "test-id", message: "more work" });
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("completed"));
+    assert.equal(result.text, "Auto-resumed session resumed [new-id]. Use agent_output to see the response.");
   });
 
   it("auto-resumes a failed session regardless of killReason", async () => {
@@ -119,8 +117,7 @@ describe("executeRespond — auto-resume", () => {
     const sm = createStubSessionManager({ "test-id": session });
     sm.spawn = () => createStubSession({ name: "resumed", id: "new-id" });
     const result = await executeRespond(sm, { session: "test-id", message: "retry" });
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("failed"));
+    assert.equal(result.text, "Auto-resumed session resumed [new-id]. Use agent_output to see the response.");
   });
 
   it("auto-resumes a killed session with user reason", async () => {
@@ -139,8 +136,7 @@ describe("executeRespond — auto-resume", () => {
     };
     const result = await executeRespond(sm, { session: "test-id", message: "continue" });
     assert.ok(spawnCalled, "spawn should have been called");
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("user-killed"));
+    assert.equal(result.text, "Auto-resumed session user-killed-session [new-id]. Use agent_output to see the response.");
   });
 
   it("does NOT auto-resume a killed session with startup-timeout reason", async () => {
@@ -190,8 +186,7 @@ describe("executeRespond — auto-resume", () => {
     const sm = createStubSessionManager({ "test-id": session });
     sm.spawn = () => createStubSession({ name: "resumed", id: "new-id" });
     const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("idle-kill"));
+    assert.equal(result.text, "Auto-resumed session resumed [new-id]. Use agent_output to see the response.");
   });
 
   it("emits only the auto-resume notification when agent_respond resumes a completed session", async () => {
@@ -239,11 +234,11 @@ describe("executeRespond — auto-resume", () => {
     assert.equal((sm as any).__dispatchCalls.length, 1);
     const [_resumedSession, request] = (sm as any).__dispatchCalls[0];
     assert.equal(request.label, "notification");
-    assert.match(request.userMessage, /Auto-resumed from completed/);
+    assert.match(request.userMessage, /▶️ \[resume-only\] Auto-resumed/);
     assert.doesNotMatch(request.userMessage, /Launched/);
   });
 
-  it("auto-resumes a shutdown-killed session with shutdown-killed label", async () => {
+  it("auto-resumes a shutdown-killed session without exposing the prior terminal label", async () => {
     const session = createStubSession({
       status: "killed",
       killReason: "shutdown",
@@ -253,8 +248,7 @@ describe("executeRespond — auto-resume", () => {
     const sm = createStubSessionManager({ "test-id": session });
     sm.spawn = () => createStubSession({ name: "shutdown-session", id: "new-id" });
     const result = await executeRespond(sm, { session: "test-id", message: "wake up" });
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("shutdown-killed"));
+    assert.equal(result.text, "Auto-resumed session shutdown-session [new-id]. Use agent_output to see the response.");
   });
 
   it("auto-resumes a persisted shutdown-killed session after restart", async () => {
@@ -395,8 +389,7 @@ describe("executeRespond — auto-resume", () => {
     };
 
     const result = await executeRespond(sm, { session: "old-user", message: "continue" });
-    assert.ok(result.text.includes("Auto-resumed"));
-    assert.ok(result.text.includes("user-killed"));
+    assert.equal(result.text, "Auto-resumed session user-killed [new-id]. Use agent_output to see the response.");
     assert.equal(capturedConfig.resumeSessionId, "harness-user");
   });
 

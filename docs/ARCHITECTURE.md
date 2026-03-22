@@ -121,17 +121,18 @@ If wake metadata is incomplete:
 ```
 Turn completes without a question → session.complete("done") immediately
   → SessionManager persists harnessSessionId
-  → No 💤 notification (🔄 Turn done already sent)
+  → No extra terminal wake (⏸️ "Paused after turn | Auto-resumable" already sent)
 
 On next agent_respond to any killed/completed/failed session:
   → actions/respond.ts detects terminal status + harnessSessionId
   → All kill reasons except startup-timeout are auto-resumable
   → Auto-spawns new session with same harnessSessionId silently
+  → Sends ▶️ "Auto-resumed"
   → Conversation context preserved
 
 If session remains untouched for idleTimeoutMinutes (default: 15 min):
   → session.kill("idle-timeout")
-  → Notification: "💤 Idle-killed"
+  → Notification: "💤 Idle timeout"
   → Also auto-resumes on next agent_respond
 
 After `sessionGcAgeMinutes` (default: 1440 / 24h):

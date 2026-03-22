@@ -76,7 +76,7 @@ agent_launch(
 
 ## agent_respond
 
-Send a follow-up message to a running multi-turn coding agent session. If the session was idle-killed (idle-timeout or paused (`done`)), the plugin auto-resumes it with conversation context preserved. After a gateway restart, `agent_respond` can also target the persisted session by internal ID, name, or harness session ID and resume it directly.
+Send a follow-up message to a running multi-turn coding agent session. If the session hit idle timeout or paused after a completed turn (`done`), the plugin auto-resumes it with conversation context preserved. After a gateway restart, `agent_respond` can also target the persisted session by internal ID, name, or harness session ID and resume it directly.
 
 ### Parameters
 
@@ -98,7 +98,7 @@ The plugin tracks how many times an agent auto-responds to a session. When the c
 
 ### Auto-Resume
 
-When responding to a session that has been killed, the plugin automatically spawns a new session with the same harness session ID, preserving conversation context. Sessions killed for any reason — including by the user (`agent_kill`), gateway restart (`shutdown`), or idle timeout — auto-resume on the next `agent_respond`. The only exception is `startup-timeout` (sessions that failed to start), which do not auto-resume to avoid retry loops.
+When responding to a terminal session that is resumable, the plugin automatically spawns a new session with the same harness session ID, preserving conversation context. Sessions paused after turn completion, stopped by the user, recovered after gateway shutdown, or ended by idle timeout all auto-resume on the next `agent_respond`. The only exception is `startup-timeout` (sessions that failed to start), which does not auto-resume to avoid retry loops.
 
 ### Permission Modes By Harness
 

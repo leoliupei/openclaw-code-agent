@@ -28,18 +28,6 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function getResumeLabel(status: string, killReason?: string): string {
-  switch (status) {
-    case "completed": return "completed";
-    case "failed": return "failed";
-    default: {
-      if (killReason === "user") return "user-killed";
-      if (killReason === "shutdown") return "shutdown-killed";
-      return "idle-kill";
-    }
-  }
-}
-
 type ResumableSession = Session | PersistedSessionInfo;
 
 function getSessionRef(session: ResumableSession): string {
@@ -125,9 +113,8 @@ async function tryAutoResume(
       harness: "harnessName" in session ? session.harnessName : session.harness,
     };
     const resumed = await sm.spawnAndAwaitRunning(resumeConfig, { notifyLaunch: false });
-    const resumeLabel = getResumeLabel(session.status, session.killReason);
-    sm.notifySession(resumed, `🔄 [${resumed.name}] Auto-resumed from ${resumeLabel}`);
-    return { text: `Auto-resumed ${resumeLabel} session ${resumed.name} [${resumed.id}]. Use agent_output to see the response.` };
+    sm.notifySession(resumed, `▶️ [${resumed.name}] Auto-resumed`);
+    return { text: `Auto-resumed session ${resumed.name} [${resumed.id}]. Use agent_output to see the response.` };
   } catch (err: unknown) {
     return { text: `Error auto-resuming session ${session.name} [${getSessionRef(session)}]: ${errorMessage(err)}`, isError: true };
   }

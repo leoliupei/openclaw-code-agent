@@ -286,8 +286,11 @@ Notifications are routed to the Telegram thread/topic where the session was laun
 | Session starts | Silent (command response confirms launch) |
 | Session completed | Brief one-liner to originating thread |
 | Session failed | Error notification to originating thread |
-| Waiting for input | Wake event + "Agent asks" in thread (only when the agent actually asks a question) |
-| Session idle-killed | Brief notification with kill reason |
+| Waiting for input | Wake event + `❓ Waiting for input` in thread (only when the agent actually asks a question) |
+| Turn completes without a question | `⏸️ Paused after turn | Auto-resumable` |
+| Session auto-resumes | `▶️ Auto-resumed` |
+| Session idle-times out | `💤 Idle timeout` |
+| Session is forcibly stopped | `⛔ Stopped ...` with the specific stop reason |
 
 ### Plan → Execute mode switch
 

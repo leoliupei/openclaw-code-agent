@@ -260,16 +260,30 @@ export class SessionManager {
 
     const costStr = `$${(session.costUsd ?? 0).toFixed(2)}`;
     const duration = formatDuration(session.duration);
-    const reasonMap: Record<string, string> = {
-      "user": "by agent/user",
-      "idle-timeout": `idle ${pluginConfig.idleTimeoutMinutes ?? 15}min`,
-      "shutdown": "gateway shutdown",
-      "unknown": "",
-    };
-    const killDetail = reasonMap[session.killReason] || "";
-    const statusLabel = `Killed${killDetail ? ` (${killDetail})` : ""}`;
 
+    if (session.killReason === "idle-timeout") {
+      this.notifySession(session, `💤 [${session.name}] Idle timeout | ${costStr} | ${duration}`);
+      return;
+    }
+
+    const statusLabel = this.getStoppedStatusLabel(session.killReason);
     this.notifySession(session, `⛔ [${session.name}] ${statusLabel} | ${costStr} | ${duration}`);
+  }
+
+  private getStoppedStatusLabel(killReason?: string): string {
+    switch (killReason) {
+      case "user":
+        return "Stopped by user";
+      case "shutdown":
+        return "Stopped by shutdown";
+      case "startup-timeout":
+        return "Stopped by startup timeout";
+      case "unknown":
+      case undefined:
+        return "Stopped unexpectedly";
+      default:
+        return "Stopped";
+    }
   }
 
   private persistSession(session: Session): void {
@@ -488,7 +502,7 @@ export class SessionManager {
 
     const telegramText = isPlanApproval
       ? `📋 [${session.name}] Plan ready for review:\n\n${preview}\n\nReply to approve or provide feedback.`
-      : `🔔 [${session.name}] Waiting for input`;
+      : `❓ [${session.name}] Waiting for input`;
 
     let eventText: string;
     if (isPlanApproval) {
@@ -617,7 +631,7 @@ export class SessionManager {
     const waitingForInput = looksLikeWaitingForUser(preview);
     const costStr = `$${(session.costUsd ?? 0).toFixed(2)}`;
     const waitingText = waitingForInput ? "yes" : "no";
-    const telegramText = `🔄 [${session.name}] Turn done | ${costStr} | Waiting input: ${waitingText}`;
+    const telegramText = `⏸️ [${session.name}] Paused after turn | Auto-resumable | ${costStr} | Waiting input: ${waitingText}`;
 
     const eventText = [
       `Coding agent session turn ended.`,

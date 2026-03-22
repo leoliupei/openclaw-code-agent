@@ -640,7 +640,7 @@ describe("SessionManager turn-end wake", () => {
     assert.match(request.wakeMessage, /Name: deterministic/);
     assert.match(request.wakeMessage, /Status: running/);
     assert.match(request.wakeMessage, /Looks like waiting for user input: yes/);
-    assert.match(request.userMessage, /Turn done/);
+    assert.match(request.userMessage, /⏸️ \[deterministic\] Paused after turn \| Auto-resumable/);
   });
 
   it("routes explicit question turns to waiting wake path", () => {
@@ -659,7 +659,7 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "waiting");
     assert.equal(request.notifyUser, "on-wake-fallback");
-    assert.match(request.userMessage, /Waiting for input/);
+    assert.match(request.userMessage, /❓ \[waiter\] Waiting for input/);
     assert.match(request.wakeMessage, /waiting for input/i);
   });
 
@@ -803,5 +803,75 @@ describe("SessionManager terminal wake behavior", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "failed");
+  });
+
+  it("uses a dedicated idle-timeout notification", () => {
+    const s = fakeSession({
+      id: "s-idle-timeout",
+      name: "idle-run",
+      status: "killed",
+      killReason: "idle-timeout",
+      costUsd: 0.25,
+      startedAt: Date.now() - 2_000,
+    });
+
+    (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "notification");
+    assert.match(request.userMessage, /💤 \[idle-run\] Idle timeout/);
+  });
+
+  it("uses explicit stopped wording for user-terminated sessions", () => {
+    const s = fakeSession({
+      id: "s-user-stop",
+      name: "manual-stop",
+      status: "killed",
+      killReason: "user",
+      startedAt: Date.now() - 2_000,
+    });
+
+    (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.match(request.userMessage, /⛔ \[manual-stop\] Stopped by user/);
+  });
+
+  it("uses explicit stopped wording for startup timeouts", () => {
+    const s = fakeSession({
+      id: "s-startup-timeout",
+      name: "startup-stop",
+      status: "killed",
+      killReason: "startup-timeout",
+      startedAt: Date.now() - 2_000,
+    });
+
+    (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.match(request.userMessage, /⛔ \[startup-stop\] Stopped by startup timeout/);
+  });
+
+  it("uses explicit stopped wording for shutdown stops", () => {
+    const s = fakeSession({
+      id: "s-shutdown-stop",
+      name: "shutdown-stop",
+      status: "killed",
+      killReason: "shutdown",
+      startedAt: Date.now() - 2_000,
+    });
+
+    (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.match(request.userMessage, /⛔ \[shutdown-stop\] Stopped by shutdown/);
   });
 });

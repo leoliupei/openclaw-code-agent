@@ -176,13 +176,14 @@ The plugin sends targeted notifications to the originating Telegram thread:
 | Emoji | Event | Description |
 |-------|-------|-------------|
 | 🚀 | Launched | Session started with prompt summary |
-| 🔔 | Agent asks | Session is waiting for user input |
+| ❓ | Waiting for input | Session is waiting for user input |
 | 📋 | Plan ready | Plan approval requested — reply "go" to approve |
-| 🔄 | Turn done | Turn completed, session paused (auto-resumable) |
+| ⏸️ | Paused after turn | Turn completed, session paused (auto-resumable) |
+| ▶️ | Auto-resumed | Session resumed on the next `agent_respond` |
 | ✅ | Completed | Completion summary with cost and duration |
 | ❌ | Failed | Error notification with hint |
-| ⛔ | Killed | Session terminated with kill reason |
-| 💤 | Idle-killed | Auto-resumes on next respond |
+| 💤 | Idle timeout | Session timed out while waiting; auto-resumes on next respond |
+| ⛔ | Stopped | Session was stopped by user, shutdown, or another forced stop |
 
 ---
 
