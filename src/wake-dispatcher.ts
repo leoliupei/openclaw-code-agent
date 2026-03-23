@@ -56,9 +56,17 @@ export class WakeDispatcher {
         const target = third ?? second;
         const accountId = third ? second : undefined;
         if (channel && target) {
+          let enrichedTarget = target;
+          if (channel === "discord" && /^\d+$/.test(target)) {
+            const sk = session.originSessionKey ?? "";
+            const discordPrefixMatch = sk.match(/^agent:[^:]+:discord:(channel|user):/i);
+            if (discordPrefixMatch?.[1]) {
+              enrichedTarget = `${discordPrefixMatch[1]}:${target}`;
+            }
+          }
           return {
             channel,
-            target,
+            target: enrichedTarget,
             accountId,
             threadId: originThreadId ?? this.parseThreadIdFromSessionKey(session.originSessionKey),
           };
@@ -69,12 +77,24 @@ export class WakeDispatcher {
     const sessionKey = this.getOriginSessionKey(session);
     if (!sessionKey) return undefined;
     const match = sessionKey.match(/^agent:[^:]+:telegram:(?:direct|dm|group|channel):([^:]+)(?::topic:(\d+))?$/i);
-    if (!match?.[1]) return undefined;
-    return {
-      channel: "telegram",
-      target: match[1],
-      threadId: originThreadId ?? match[2],
-    };
+    if (match?.[1]) {
+      return {
+        channel: "telegram",
+        target: match[1],
+        threadId: originThreadId ?? match[2],
+      };
+    }
+    const discordMatch = sessionKey.match(/^agent:[^:]+:discord:(direct|dm|channel|group):([^:]+)$/i);
+    if (discordMatch?.[2]) {
+      const dKind = discordMatch[1].toLowerCase();
+      const dId = discordMatch[2];
+      return {
+        channel: "discord",
+        target: (dKind === "direct" || dKind === "dm") ? `user:${dId}` : `channel:${dId}`,
+        threadId: originThreadId,
+      };
+    }
+    return undefined;
   }
 
   private parseThreadIdFromSessionKey(sessionKey?: string): string | undefined {

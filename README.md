@@ -265,6 +265,32 @@ Permission modes are shared at the plugin API, but each harness maps them differ
 - Runtime records are evicted after `sessionGcAgeMinutes` (default 1440 / 24h)
 - Eviction means **removed from runtime cache**, not deleted permanently; persisted session records remain resumable
 
+### Discord Notifications
+
+To route notifications to a Discord channel or user, set `originChannel` (or `fallbackChannel`) using the Discord format:
+
+```
+discord|channel:CHANNEL_ID
+discord|accountId|channel:CHANNEL_ID
+```
+
+- Use `channel:CHANNEL_ID` for a server channel, or `user:USER_ID` for a DM.
+- The `accountId` segment is optional and selects a specific Discord bot account when you have multiple Discord integrations.
+- Discord session keys (`agent:*:discord:channel:ID`) are auto-parsed — no explicit `originChannel` is required when a session is launched from a Discord thread.
+- If using bot notifications, set `allowBots: "mentions"` in your OpenClaw Discord integration config so the bot is permitted to receive and forward mention events.
+
+Example `fallbackChannel` for Discord:
+
+```json
+"fallbackChannel": "discord|channel:1234567890123456789"
+```
+
+With an explicit account:
+
+```json
+"fallbackChannel": "discord|my-discord-bot|channel:1234567890123456789"
+```
+
 ### Example
 
 ```json

@@ -11,6 +11,7 @@ import { SessionStore } from "./session-store";
 import { SessionMetricsRecorder } from "./session-metrics";
 import { WakeDispatcher, type SessionNotificationRequest } from "./wake-dispatcher";
 import { looksLikeWaitingForUser } from "./waiting-detector";
+import { isGitRepoWithRemote, createWorktree, removeWorktree } from "./worktree";
 
 /**
  * Resolve the plan-approval workflow path for both source and bundled layouts.
@@ -154,7 +155,26 @@ export class SessionManager {
     if (name !== baseName) {
       console.warn(`[SessionManager] Name conflict: "${baseName}" → "${name}" (active session with same name exists)`);
     }
-    const session = new Session(config, name);
+
+    // Worktree auto-creation: create a git worktree so the main checkout stays clean.
+    let actualWorkdir = config.workdir;
+    let worktreePath: string | undefined;
+    const shouldWorktree = config.worktree !== false; // default true unless explicitly false
+    if (shouldWorktree && isGitRepoWithRemote(config.workdir)) {
+      try {
+        worktreePath = createWorktree(config.workdir, name);
+        actualWorkdir = worktreePath;
+        console.log(`[SessionManager] Created worktree at ${worktreePath}`);
+      } catch (err) {
+        console.warn(`[SessionManager] Failed to create worktree: ${err instanceof Error ? err.message : String(err)}, using original workdir`);
+      }
+    }
+
+    const session = new Session({ ...config, workdir: actualWorkdir }, name);
+    if (worktreePath) {
+      session.worktreePath = worktreePath;
+      session.originalWorkdir = config.workdir;
+    }
     this.sessions.set(session.id, session);
     this.metrics.incrementLaunched();
 
@@ -177,7 +197,10 @@ export class SessionManager {
     session.start();
 
     if (options.notifyLaunch !== false) {
-      const launchText = `🚀 [${session.name}] Launched | ${session.workdir} | ${session.model ?? "default"}`;
+      const workdirLabel = session.worktreePath
+        ? `${session.worktreePath} (worktree of ${session.originalWorkdir})`
+        : session.workdir;
+      const launchText = `🚀 [${session.name}] Launched | ${workdirLabel} | ${session.model ?? "default"}`;
       this.notifySession(session, launchText, "launch");
     }
 
@@ -235,6 +258,11 @@ export class SessionManager {
   private onSessionTerminal(session: Session): void {
     this.persistSession(session);
     this.lastWaitingEventTimestamps.delete(session.id);
+
+    // Best-effort worktree cleanup — remove the worktree but keep the branch.
+    if (session.worktreePath && session.originalWorkdir) {
+      removeWorktree(session.originalWorkdir, session.worktreePath);
+    }
 
     // Multi-turn sessions that naturally end after a successful no-input turn
     // use reason "done". Turn-complete wake already fired for that turn.
