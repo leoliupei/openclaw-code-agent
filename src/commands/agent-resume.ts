@@ -48,16 +48,16 @@ export function registerAgentResumeCommand(api: CommandApi): void {
       }
 
       if (args === "--list") {
-        const persisted = sessionManager.listPersistedSessions();
+        const persisted = sessionManager.listPersistedSessions().filter((info) => info.resumable);
         if (persisted.length === 0) {
-          return { text: "No resumable sessions found. Sessions are persisted after completion." };
+          return { text: "No resumable sessions found." };
         }
 
         const lines = persisted.map((info) => {
           const promptSummary = info.prompt.length > 60 ? info.prompt.slice(0, 60) + "..." : info.prompt;
-          const completedStr = info.completedAt
-            ? `completed ${formatDuration(Date.now() - info.completedAt)} ago`
-            : info.status;
+          const completedStr = info.lifecycle === "suspended" && info.completedAt
+            ? `suspended ${formatDuration(Date.now() - info.completedAt)} ago`
+            : (info.completedAt ? `completed ${formatDuration(Date.now() - info.completedAt)} ago` : info.status);
           return [
             `  ${info.name} — ${completedStr}`,
             `    Session ID: ${info.harnessSessionId}`,
@@ -93,6 +93,9 @@ export function registerAgentResumeCommand(api: CommandApi): void {
 
       const active = sessionManager.resolve(ref);
       const persisted = sessionManager.getPersistedSession(ref);
+      if (persisted && !persisted.resumable) {
+        return { text: `Error: Session "${ref}" is not explicitly resumable. Start a fresh session or inspect it with agent_output.` };
+      }
       const { resumeSessionId, clearedPersistedCodexResume } = decideResumeSessionId({
         requestedResumeSessionId: harnessSessionId,
         activeSession: active

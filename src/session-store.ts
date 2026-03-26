@@ -1,7 +1,25 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from "fs";
+import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
-import type { PersistedSessionInfo, SessionStatus, KillReason, ReasoningEffort, PermissionMode, CodexApprovalPolicy, PlanApprovalMode, PlanApprovalContext } from "./types";
+import type {
+  PersistedSessionInfo,
+  SessionStatus,
+  KillReason,
+  ReasoningEffort,
+  PermissionMode,
+  CodexApprovalPolicy,
+  PlanApprovalMode,
+  PlanApprovalContext,
+  SessionLifecycle,
+  SessionApprovalState,
+  SessionWorktreeState,
+  SessionRuntimeState,
+  SessionDeliveryState,
+  SessionActionToken,
+  SessionActionKind,
+  SessionRoute,
+} from "./types";
 import type { Session } from "./session";
 import { getSessionOutputFilePath } from "./session";
 import { resolveOpenclawHomeDir } from "./openclaw-paths";
@@ -22,6 +40,7 @@ function resolveSessionIndexPath(env: NodeJS.ProcessEnv): string {
 const TERMINAL_STATUSES = new Set<SessionStatus>(["completed", "failed", "killed"]);
 const VALID_STATUSES = new Set<SessionStatus>(["running", "completed", "failed", "killed"]);
 const TMP_OUTPUT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const STORE_SCHEMA_VERSION = 2;
 
 interface SessionStoreOptions {
   env?: NodeJS.ProcessEnv;
@@ -82,6 +101,81 @@ function toOptionalKillReason(value: unknown): KillReason | undefined {
     : undefined;
 }
 
+function toOptionalLifecycle(value: unknown): SessionLifecycle | undefined {
+  return value === "starting"
+    || value === "active"
+    || value === "awaiting_plan_decision"
+    || value === "awaiting_user_input"
+    || value === "awaiting_worktree_decision"
+    || value === "suspended"
+    || value === "terminal"
+    ? value
+    : undefined;
+}
+
+function toOptionalApprovalState(value: unknown): SessionApprovalState | undefined {
+  return value === "not_required"
+    || value === "pending"
+    || value === "approved"
+    || value === "changes_requested"
+    || value === "rejected"
+    ? value
+    : undefined;
+}
+
+function toOptionalWorktreeState(value: unknown): SessionWorktreeState | undefined {
+  return value === "none"
+    || value === "provisioned"
+    || value === "pending_decision"
+    || value === "merge_in_progress"
+    || value === "pr_in_progress"
+    || value === "merged"
+    || value === "pr_open"
+    || value === "dismissed"
+    || value === "cleanup_failed"
+    ? value
+    : undefined;
+}
+
+function toOptionalRuntimeState(value: unknown): SessionRuntimeState | undefined {
+  return value === "live" || value === "stopped" ? value : undefined;
+}
+
+function toOptionalDeliveryState(value: unknown): SessionDeliveryState | undefined {
+  return value === "idle" || value === "notifying" || value === "wake_pending" || value === "failed"
+    ? value
+    : undefined;
+}
+
+function toOptionalActionKind(value: unknown): SessionActionKind | undefined {
+  return value === "plan-approve"
+    || value === "plan-request-changes"
+    || value === "plan-reject"
+    || value === "worktree-merge"
+    || value === "worktree-create-pr"
+    || value === "worktree-update-pr"
+    || value === "worktree-view-pr"
+    || value === "worktree-decide-later"
+    || value === "worktree-dismiss"
+    || value === "session-resume"
+    || value === "session-restart"
+    || value === "view-output"
+    || value === "question-answer"
+    ? value
+    : undefined;
+}
+
+function normalizeRoute(raw: unknown): SessionRoute | undefined {
+  if (!isRecord(raw)) return undefined;
+  const provider = toOptionalString(raw.provider);
+  const accountId = toOptionalString(raw.accountId);
+  const target = toOptionalString(raw.target);
+  const threadId = toOptionalString(raw.threadId);
+  const sessionKey = toOptionalString(raw.sessionKey);
+  if (!provider && !accountId && !target && !threadId && !sessionKey) return undefined;
+  return { provider, accountId, target, threadId, sessionKey };
+}
+
 function normalizeStatus(value: unknown): SessionStatus | undefined {
   if (typeof value !== "string") return undefined;
   if (!VALID_STATUSES.has(value as SessionStatus)) return undefined;
@@ -98,6 +192,7 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
 
   const status = normalizeStatus(raw.status);
   if (!status) return undefined;
+  const recoveredFromRunning = raw.status === "running";
 
   return {
     sessionId: toOptionalString(raw.sessionId),
@@ -110,6 +205,11 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     createdAt: toOptionalNumber(raw.createdAt),
     completedAt: toOptionalNumber(raw.completedAt),
     status,
+    lifecycle: recoveredFromRunning ? (toOptionalLifecycle(raw.lifecycle) ?? "suspended") : toOptionalLifecycle(raw.lifecycle),
+    approvalState: toOptionalApprovalState(raw.approvalState),
+    worktreeState: toOptionalWorktreeState(raw.worktreeState),
+    runtimeState: recoveredFromRunning ? "stopped" : toOptionalRuntimeState(raw.runtimeState),
+    deliveryState: toOptionalDeliveryState(raw.deliveryState),
     killReason: toOptionalKillReason(raw.killReason),
     costUsd: typeof raw.costUsd === "number" && Number.isFinite(raw.costUsd) ? raw.costUsd : 0,
     originAgentId: toOptionalString(raw.originAgentId),
@@ -118,6 +218,7 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
       ? raw.originThreadId
       : undefined,
     originSessionKey: toOptionalString(raw.originSessionKey),
+    route: normalizeRoute(raw.route),
     outputPath: toOptionalString(raw.outputPath),
     harness: toOptionalString(raw.harness),
     currentPermissionMode: toOptionalPermissionMode(raw.currentPermissionMode),
@@ -140,7 +241,35 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     worktreeDecisionSnoozedUntil: toOptionalString(raw.worktreeDecisionSnoozedUntil),
     worktreeDisposition: (raw.worktreeDisposition === "active" || raw.worktreeDisposition === "pr-opened" || raw.worktreeDisposition === "merged" || raw.worktreeDisposition === "dismissed" || raw.worktreeDisposition === "no-change-cleaned") ? raw.worktreeDisposition : undefined,
     worktreeDismissedAt: toOptionalString(raw.worktreeDismissedAt),
+    resumable: recoveredFromRunning ? true : raw.resumable === true,
   };
+}
+
+function normalizeActionToken(raw: unknown): SessionActionToken | undefined {
+  if (!isRecord(raw)) return undefined;
+  const kind = toOptionalActionKind(raw.kind);
+  const id = toNonEmptyString(raw.id);
+  const sessionId = toNonEmptyString(raw.sessionId);
+  const createdAt = toOptionalNumber(raw.createdAt);
+  if (!id || !sessionId || !kind || createdAt == null) return undefined;
+
+  return {
+    id,
+    sessionId,
+    kind,
+    createdAt,
+    expiresAt: toOptionalNumber(raw.expiresAt),
+    consumedAt: toOptionalNumber(raw.consumedAt),
+    optionIndex: toOptionalNumber(raw.optionIndex),
+    label: toOptionalString(raw.label),
+    targetUrl: toOptionalString(raw.targetUrl),
+  };
+}
+
+interface SessionStoreSchema {
+  schemaVersion: number;
+  sessions: PersistedSessionInfo[];
+  actionTokens: SessionActionToken[];
 }
 
 /**
@@ -150,6 +279,7 @@ export class SessionStore {
   readonly persisted: Map<string, PersistedSessionInfo> = new Map();
   readonly idIndex: Map<string, string> = new Map();
   readonly nameIndex: Map<string, string> = new Map();
+  readonly actionTokens: Map<string, SessionActionToken> = new Map();
   private readonly indexPath: string;
 
   constructor(options: SessionStoreOptions = {}) {
@@ -166,10 +296,20 @@ export class SessionStore {
     try {
       const raw = readFileSync(this.indexPath, "utf-8");
       const parsed: unknown = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
+      if (Array.isArray(parsed)) {
+        this.archiveLegacyIndex();
+        this.saveIndex();
+        return;
+      }
+      if (!isRecord(parsed) || parsed.schemaVersion !== STORE_SCHEMA_VERSION) {
+        this.archiveLegacyIndex();
+        this.saveIndex();
+        return;
+      }
 
       let hadInvalid = false;
-      for (const candidate of parsed) {
+      const sessionsRaw = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+      for (const candidate of sessionsRaw) {
         const entry = normalizePersistedEntry(candidate);
         if (!entry) {
           hadInvalid = true;
@@ -180,6 +320,18 @@ export class SessionStore {
         if (entry.sessionId) this.idIndex.set(entry.sessionId, entry.harnessSessionId);
         if (entry.name) this.nameIndex.set(entry.name, entry.harnessSessionId);
       }
+
+      const tokensRaw = Array.isArray(parsed.actionTokens) ? parsed.actionTokens : [];
+      for (const candidate of tokensRaw) {
+        const token = normalizeActionToken(candidate);
+        if (!token) {
+          hadInvalid = true;
+          continue;
+        }
+        this.actionTokens.set(token.id, token);
+      }
+
+      this.purgeExpiredActionTokens();
 
       if (hadInvalid) {
         this.saveIndex();
@@ -193,10 +345,26 @@ export class SessionStore {
     try {
       mkdirSync(dirname(this.indexPath), { recursive: true });
       const tmp = this.indexPath + ".tmp";
-      writeFileSync(tmp, JSON.stringify([...this.persisted.values()], null, 2), "utf-8");
+      const payload: SessionStoreSchema = {
+        schemaVersion: STORE_SCHEMA_VERSION,
+        sessions: [...this.persisted.values()],
+        actionTokens: [...this.actionTokens.values()],
+      };
+      writeFileSync(tmp, JSON.stringify(payload, null, 2), "utf-8");
       renameSync(tmp, this.indexPath);
     } catch (err: unknown) {
       console.warn(`[SessionStore] Failed to save session index: ${errorMessage(err)}`);
+    }
+  }
+
+  private archiveLegacyIndex(): void {
+    try {
+      if (!existsSync(this.indexPath)) return;
+      const archivedPath = `${this.indexPath}.legacy-${Date.now()}.json`;
+      renameSync(this.indexPath, archivedPath);
+      console.warn(`[SessionStore] Archived legacy session store to ${archivedPath}`);
+    } catch (err: unknown) {
+      console.warn(`[SessionStore] Failed to archive legacy session store: ${errorMessage(err)}`);
     }
   }
 
@@ -213,11 +381,17 @@ export class SessionStore {
       reasoningEffort: session.reasoningEffort,
       createdAt: session.startedAt,
       status: "running",
+      lifecycle: session.lifecycle,
+      approvalState: session.approvalState,
+      worktreeState: session.worktreeState,
+      runtimeState: session.runtimeState,
+      deliveryState: session.deliveryState,
       costUsd: 0,
       originAgentId: session.originAgentId,
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
+      route: session.route,
       harness: session.harnessName,
       currentPermissionMode: session.currentPermissionMode,
       pendingPlanApproval: session.pendingPlanApproval,
@@ -229,6 +403,7 @@ export class SessionStore {
       worktreeStrategy: session.worktreeStrategy,
       worktreeBaseBranch: session.worktreeBaseBranch,
       worktreePrTargetRepo: (session as any).worktreePrTargetRepo,
+      resumable: session.isExplicitlyResumable,
     };
     this.persisted.set(stub.harnessSessionId, stub);
     this.idIndex.set(session.id, stub.harnessSessionId);
@@ -277,12 +452,18 @@ export class SessionStore {
       createdAt: session.startedAt,
       completedAt: session.completedAt,
       status: session.status,
+      lifecycle: session.lifecycle,
+      approvalState: session.approvalState,
+      worktreeState: session.worktreeState,
+      runtimeState: session.runtimeState,
+      deliveryState: session.deliveryState,
       killReason: session.killReason,
       costUsd: session.costUsd,
       originAgentId: session.originAgentId,
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
+      route: session.route,
       outputPath,
       harness: session.harnessName,
       currentPermissionMode: session.currentPermissionMode,
@@ -295,6 +476,7 @@ export class SessionStore {
       worktreeStrategy: session.worktreeStrategy,
       worktreeBaseBranch: session.worktreeBaseBranch,
       worktreePrTargetRepo: (session as any).worktreePrTargetRepo,
+      resumable: session.isExplicitlyResumable,
     };
 
     this.persisted.set(session.harnessSessionId, info);
@@ -368,6 +550,7 @@ export class SessionStore {
 
   /** Best-effort cleanup for stale tmp output files written by persistTerminal. */
   cleanupTmpOutputFiles(now: number): void {
+    this.purgeExpiredActionTokens(now);
     try {
       const tmpDir = tmpdir();
       const tmpFiles = readdirSync(tmpDir).filter((f) => f.startsWith("openclaw-agent-") && f.endsWith(".txt"));
@@ -411,5 +594,65 @@ export class SessionStore {
     if (!session.completedAt) return false;
     if (!TERMINAL_STATUSES.has(session.status)) return false;
     return now - session.completedAt > cleanupMaxAgeMs;
+  }
+
+  createActionToken(
+    sessionId: string,
+    kind: SessionActionKind,
+    options: Partial<Omit<SessionActionToken, "id" | "sessionId" | "kind" | "createdAt">> = {},
+  ): SessionActionToken {
+    const token: SessionActionToken = {
+      id: randomUUID(),
+      sessionId,
+      kind,
+      createdAt: Date.now(),
+      ...options,
+    };
+    this.actionTokens.set(token.id, token);
+    this.saveIndex();
+    return token;
+  }
+
+  getActionToken(tokenId: string): SessionActionToken | undefined {
+    const token = this.actionTokens.get(tokenId);
+    if (!token) return undefined;
+    if (token.expiresAt != null && token.expiresAt <= Date.now()) {
+      this.actionTokens.delete(tokenId);
+      this.saveIndex();
+      return undefined;
+    }
+    return token;
+  }
+
+  consumeActionToken(tokenId: string): SessionActionToken | undefined {
+    const token = this.getActionToken(tokenId);
+    if (!token || token.consumedAt != null) return undefined;
+    token.consumedAt = Date.now();
+    this.saveIndex();
+    return token;
+  }
+
+  deleteActionTokensForSession(sessionId: string): void {
+    let changed = false;
+    for (const [tokenId, token] of this.actionTokens) {
+      if (token.sessionId === sessionId) {
+        this.actionTokens.delete(tokenId);
+        changed = true;
+      }
+    }
+    if (changed) this.saveIndex();
+  }
+
+  purgeExpiredActionTokens(now: number = Date.now()): void {
+    let changed = false;
+    for (const [tokenId, token] of this.actionTokens) {
+      const expired = token.expiresAt != null && token.expiresAt <= now;
+      const consumedTooOld = token.consumedAt != null && now - token.consumedAt > TMP_OUTPUT_MAX_AGE_MS;
+      if (expired || consumedTooOld) {
+        this.actionTokens.delete(tokenId);
+        changed = true;
+      }
+    }
+    if (changed) this.saveIndex();
   }
 }

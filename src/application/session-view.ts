@@ -25,6 +25,7 @@ interface ActiveSessionView {
   name: string;
   status: SessionStatus;
   phase: string;
+  lifecycle?: string;
   duration: number;
   costUsd: number;
   error?: string;
@@ -43,6 +44,8 @@ interface SessionListingItem {
   costUsd: number;
   multiTurn: boolean;
   phase: string;
+  lifecycle?: string;
+  resumable?: boolean;
   harness?: string;
   harnessSessionId?: string;
   originChannel?: string;
@@ -104,9 +107,10 @@ function readLiveOutputLines(session: ActiveSessionView, options: OutputOptions,
 function outputHeaderForActiveSession(session: ActiveSessionView): string {
   const duration = formatDuration(session.duration);
   const costStr = ` | Cost: $${session.costUsd.toFixed(4)}`;
-  const phaseStr = session.status === "running" ? ` | Phase: ${session.phase}` : "";
+  const phaseStr = session.phase ? ` | Phase: ${session.phase}` : "";
+  const lifecycleStr = session.lifecycle && session.lifecycle !== session.phase ? ` | Lifecycle: ${session.lifecycle}` : "";
   return [
-    `Session: ${session.name} [${session.id}] | Status: ${session.status.toUpperCase()}${phaseStr}${costStr} | Duration: ${duration}`,
+    `Session: ${session.name} [${session.id}] | Status: ${session.status.toUpperCase()}${phaseStr}${lifecycleStr}${costStr} | Duration: ${duration}`,
     `${"─".repeat(60)}`,
   ].join("\n");
 }
@@ -241,7 +245,9 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
       workdir: p.workdir ?? "(unknown)",
       costUsd: p.costUsd ?? 0,
       multiTurn: true, // Persisted sessions are always resumable multi-turn records.
-      phase: p.status,
+      phase: p.lifecycle ?? p.status,
+      lifecycle: p.lifecycle,
+      resumable: p.resumable,
       harness: p.harness,
       harnessSessionId: p.harnessSessionId,
       originChannel: p.originChannel,
@@ -256,16 +262,6 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
   }
 
   for (const session of active) {
-    // F1: If worktreePath is set, extract branch name and show original repo
-    let worktreeBranch: string | undefined;
-    if (session.worktreePath && session.originalWorkdir) {
-      // Extract branch from worktreePath
-      const branchMatch = session.worktreePath.match(/openclaw-worktree-(.+)$/);
-      if (branchMatch) {
-        worktreeBranch = `agent/${branchMatch[1]}`;
-      }
-    }
-
     merged.set(session.id, {
       id: session.id,
       name: session.name,
@@ -278,12 +274,14 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
       costUsd: session.costUsd,
       multiTurn: session.multiTurn,
       phase: session.phase,
+      lifecycle: session.lifecycle,
+      resumable: session.isExplicitlyResumable,
       harness: session.harnessName,
       harnessSessionId: session.harnessSessionId,
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       worktreePath: session.worktreePath,
-      worktreeBranch,
+      worktreeBranch: session.worktreeBranch,
       worktreeStrategy: session.worktreeStrategy,
       worktreeMerged: undefined, // Active sessions don't have merge status yet
       worktreeMergedAt: undefined,

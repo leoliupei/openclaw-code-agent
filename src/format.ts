@@ -20,6 +20,8 @@ export interface SessionListRenderable {
   multiTurn: boolean;
   costUsd: number;
   phase: string;
+  lifecycle?: string;
+  resumable?: boolean;
   harness?: string;
   harnessSessionId?: string;
   resumeSessionId?: string;
@@ -70,7 +72,11 @@ const STATUS_ICONS: Record<string, string> = {
   completed: "✅",
   failed: "❌",
   killed: "⛔",
-  "awaiting-plan-approval": "📋",
+  awaiting_plan_decision: "📋",
+  awaiting_user_input: "❓",
+  awaiting_worktree_decision: "🌿",
+  suspended: "⏸️",
+  terminal: "🏁",
 };
 
 /** Render a human-readable session row for `agent_sessions`. */
@@ -105,6 +111,12 @@ export function formatSessionListing(session: SessionListRenderable): string {
 
   if (session.phase !== session.status) {
     lines.push(`   ⚙️  Phase: ${session.phase}`);
+  }
+  if (session.lifecycle && session.lifecycle !== session.phase) {
+    lines.push(`   🔄 Lifecycle: ${session.lifecycle}`);
+  }
+  if (session.resumable) {
+    lines.push(`   ↩️  Resumable: yes`);
   }
 
   if (session.harness) {

@@ -5,7 +5,24 @@ import { join } from "path";
 import { nanoid } from "nanoid";
 import { getDefaultHarness, getHarness } from "./harness";
 import type { AgentHarness, HarnessSession, HarnessMessage } from "./harness";
-import type { SessionConfig, SessionStatus, PermissionMode, KillReason, ReasoningEffort, CodexApprovalPolicy, WorktreeStrategy, CanUseToolCallback, PlanApprovalMode, PlanApprovalContext } from "./types";
+import type {
+  SessionConfig,
+  SessionStatus,
+  PermissionMode,
+  KillReason,
+  ReasoningEffort,
+  CodexApprovalPolicy,
+  WorktreeStrategy,
+  CanUseToolCallback,
+  PlanApprovalMode,
+  PlanApprovalContext,
+  SessionLifecycle,
+  SessionApprovalState,
+  SessionWorktreeState,
+  SessionRuntimeState,
+  SessionDeliveryState,
+  SessionRoute,
+} from "./types";
 import {
   getGlobalMcpServers,
   pluginConfig,
@@ -13,7 +30,14 @@ import {
   resolveDefaultModelForHarness,
   resolveReasoningEffortForHarness,
 } from "./config";
-import { looksLikePlanOnlyPrompt, looksLikePlanOutput } from "./waiting-detector";
+import {
+  reduceSessionControlState,
+  SESSION_STATUS_TRANSITIONS,
+  type SessionControlEvent,
+  type SessionControlPatch,
+  type SessionControlState,
+  applySessionControlPatch,
+} from "./session-state";
 
 const OUTPUT_BUFFER_MAX = 2000;
 const STARTUP_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
@@ -25,14 +49,6 @@ export function getSessionOutputFilePath(sessionId: string): string {
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
-
-const TRANSITIONS: Record<SessionStatus, readonly SessionStatus[]> = {
-  starting: ["running", "failed", "killed"],
-  running: ["completed", "failed", "killed"],
-  completed: [],
-  failed: [],
-  killed: [],
-};
 
 /**
  * Async queue used as the prompt stream for multi-turn harnesses.
@@ -122,6 +138,11 @@ export class Session extends EventEmitter {
   worktreePrTargetRepo?: string;
   worktreePushRemote?: string;
   worktreeDisposition?: string;
+  worktreePrUrl?: string;
+  worktreePrNumber?: number;
+  worktreeMerged?: boolean;
+  worktreeMergedAt?: string;
+  worktreeState: SessionWorktreeState = "none";
 
   // Multi-turn
   readonly multiTurn: boolean;
@@ -158,6 +179,7 @@ export class Session extends EventEmitter {
   originThreadId?: string | number;
   readonly originAgentId?: string;
   readonly originSessionKey?: string;
+  route?: SessionRoute;
 
   // Flags
   pendingPlanApproval: boolean = false;
@@ -169,7 +191,10 @@ export class Session extends EventEmitter {
   private planModeApproved: boolean = false;
   private turnInProgress: boolean = true;
   private currentTurnText: string = "";
-  private readonly softPlanExpected: boolean;
+  lifecycle: SessionLifecycle = "starting";
+  approvalState: SessionApprovalState = "not_required";
+  runtimeState: SessionRuntimeState = "live";
+  deliveryState: SessionDeliveryState = "idle";
 
   // AskUserQuestion intercept
   private readonly canUseTool?: CanUseToolCallback;
@@ -206,6 +231,7 @@ export class Session extends EventEmitter {
     this.originThreadId = config.originThreadId;
     this.originAgentId = config.originAgentId;
     this.originSessionKey = config.originSessionKey;
+    this.route = this.buildRoute();
     this.resumeSessionId = config.resumeSessionId;
     this.forkSession = config.forkSession;
     this.multiTurn = config.multiTurn ?? true;
@@ -215,11 +241,9 @@ export class Session extends EventEmitter {
       this.worktreePrTargetRepo = config.worktreePrTargetRepo;
     }
     this.canUseTool = config.canUseTool;
-    this.softPlanExpected =
-      this.permissionMode === "bypassPermissions"
-      && looksLikePlanOnlyPrompt(this.prompt);
     this.startedAt = Date.now();
     this.abortController = new AbortController();
+    this.applyControlEvent({ type: "initialize", hasWorktree: !!(this.worktreeStrategy && this.worktreeStrategy !== "off") });
   }
 
   get status(): SessionStatus { return this._status; }
@@ -231,21 +255,22 @@ export class Session extends EventEmitter {
   }
 
   get phase(): string {
-    if (this._status !== "running") return this._status;
-    if (this.pendingPlanApproval) return "awaiting-plan-approval";
-    if (this.currentPermissionMode === "plan" && !this.planModeApproved) return "planning";
-    if (this.harness.name === "codex") return "implementing"; // after the approval check
-    return "implementing";
+    return this.lifecycle;
+  }
+
+  get isExplicitlyResumable(): boolean {
+    return this.lifecycle === "suspended";
   }
 
   // -- State machine --
 
   transition(newStatus: SessionStatus): void {
-    if (!TRANSITIONS[this._status].includes(newStatus)) {
+    if (!SESSION_STATUS_TRANSITIONS[this._status].includes(newStatus)) {
       throw new Error(`Session state error: cannot transition from ${this._status} to ${newStatus}. This is an internal error — please report it.`);
     }
     const prev = this._status;
     this._status = newStatus;
+    this.applyControlEvent({ type: "status.transition", status: newStatus });
     this.emit("statusChange", this, newStatus, prev);
   }
 
@@ -269,51 +294,12 @@ export class Session extends EventEmitter {
     this.timers.clear();
   }
 
-  private shouldSuppressWorktreeDecisionQuestion(input: Record<string, unknown>): boolean {
-    if (
-      !this.worktreeStrategy ||
-      this.worktreeStrategy === "off" ||
-      this.worktreeStrategy === "manual" ||
-      (this.currentPermissionMode === "plan" && !this.planModeApproved)
-    ) {
-      return false;
-    }
-
-    const questions = Array.isArray(input.questions) ? input.questions : [];
-    const firstQuestion = questions[0];
-    const textSource =
-      typeof input.text === "string"
-        ? input.text
-        : typeof input.question === "string"
-          ? input.question
-          : firstQuestion && typeof firstQuestion === "object" && typeof (firstQuestion as { question?: unknown }).question === "string"
-            ? (firstQuestion as { question: string }).question
-            : "";
-    const text = textSource.toLowerCase();
-    if (!text) return false;
-
-    const mentionsMerge = /\bmerge\b/.test(text);
-    const mentionsPr = /\b(pr|pull request)\b/.test(text);
-    const mentionsDecision = /\b(decide|decision|later|dismiss)\b/.test(text);
-    return mentionsMerge && (mentionsPr || mentionsDecision);
-  }
-
   private markPendingPlanApproval(context: PlanApprovalContext): void {
-    if (this.planModeApproved) return;
-    this.pendingPlanApproval = true;
-    this.planApprovalContext = context;
+    this.applyControlEvent({ type: "plan.requested", context });
   }
 
   private clearPendingPlanApproval(): void {
-    this.pendingPlanApproval = false;
-    this.planApprovalContext = undefined;
-  }
-
-  private shouldTreatCurrentTurnAsSoftPlanApproval(numTurns: number): boolean {
-    if (!this.softPlanExpected) return false;
-    if (numTurns !== 1) return false;
-    if (this.pendingPlanApproval || this.planModeApproved) return false;
-    return looksLikePlanOutput(this.currentTurnText);
+    this.applyControlEvent({ type: "plan.cleared" });
   }
 
   // -- Lifecycle --
@@ -377,6 +363,7 @@ export class Session extends EventEmitter {
     this.waitingForInputFired = false;
     this.turnInProgress = true;
     this.currentTurnText = "";
+    this.applyControlEvent({ type: "turn.started" });
 
     let effectiveText = text;
     if (this.pendingModeSwitch) {
@@ -404,18 +391,19 @@ export class Session extends EventEmitter {
         console.warn(`[Session ${this.id}] Cannot call setPermissionMode — falling back to text prefix only (currentPermissionMode remains ${this.currentPermissionMode})`);
       }
 
-      if (appliedApprovalPath) {
-        // Only clear pendingPlanApproval when the approval path is actually applied.
-        this.clearPendingPlanApproval();
-        if (newMode !== "plan") {
-          this.planModeApproved = true;
+        if (appliedApprovalPath) {
+          // Only clear pendingPlanApproval when the approval path is actually applied.
+          this.clearPendingPlanApproval();
+          if (newMode !== "plan") {
+            this.applyControlEvent({ type: "plan.approved" });
+          }
         }
-      }
 
       if (shouldInjectPrefix) {
         effectiveText = `[SYSTEM: The user has approved your plan. Exit plan mode immediately and implement the changes with full permissions. Do not ask for further confirmation.]\n\n${text}`;
       }
     } else if (this.pendingPlanApproval && !this.planModeApproved) {
+      this.applyControlEvent({ type: "plan.changes_requested" });
       const toolNames = this.harness.planApprovalToolNames;
       const toolRef = toolNames.length > 0 ? ` then call ${toolNames.join(" or ")} again to re-submit for approval.` : " then re-submit your revised plan for approval.";
       effectiveText = `[SYSTEM: The user wants changes to your plan. Revise the plan based on their feedback below,${toolRef} Do NOT start implementing yet.]\n\n${text}`;
@@ -491,6 +479,7 @@ export class Session extends EventEmitter {
     const idleTimeoutMs = (pluginConfig.idleTimeoutMinutes ?? 15) * 60 * 1000;
     this.setTimer("idle", idleTimeoutMs, () => {
       if (this._status === "running") {
+        this.applyControlEvent({ type: "terminal.entered", suspended: true });
         this.kill("idle-timeout");
       }
     });
@@ -506,6 +495,7 @@ export class Session extends EventEmitter {
       });
     }
     this.abortController.abort();
+    this.applyControlEvent({ type: "terminal.entered", suspended: this.lifecycle === "suspended" });
   }
 
   /**
@@ -523,6 +513,10 @@ export class Session extends EventEmitter {
     if (options.reason) this.killReason = options.reason;
     if (options.error !== undefined) this.error = options.error;
     this.completedAt = Date.now();
+    this.applyControlEvent({
+      type: "terminal.entered",
+      suspended: status === "killed" && options.reason === "idle-timeout",
+    });
     this.transition(status);
     this.teardown();
   }
@@ -571,15 +565,12 @@ export class Session extends EventEmitter {
           }
         }
         if (this.harness.questionToolNames.includes(msg.name)) {
-          const questionInput = (msg.input ?? {}) as Record<string, unknown>;
-          const suppressWorktreeQuestion = this.shouldSuppressWorktreeDecisionQuestion(questionInput);
-          if (!suppressWorktreeQuestion) {
-            this.lastTurnHadQuestion = true;
-            // Defensive: CC normally uses ExitPlanMode in plan mode, but if it
-            // uses AskUserQuestion instead, treat it as a plan approval signal.
-            if ((this.currentPermissionMode === "plan" || this.permissionMode === "plan") && !this.planModeApproved) {
-              this.markPendingPlanApproval("plan-mode");
-            }
+          this.lastTurnHadQuestion = true;
+          this.applyControlEvent({ type: "input.requested" });
+          // Defensive: CC normally uses ExitPlanMode in plan mode, but if it
+          // uses AskUserQuestion instead, treat it as a plan approval signal.
+          if ((this.currentPermissionMode === "plan" || this.permissionMode === "plan") && !this.planModeApproved) {
+            this.markPendingPlanApproval("plan-mode");
           }
         } else if (this.harness.planApprovalToolNames.includes(msg.name) && !this.planModeApproved) {
           this.lastTurnHadQuestion = true;
@@ -624,10 +615,6 @@ export class Session extends EventEmitter {
             this.markPendingPlanApproval("plan-mode");
           }
 
-          if (this.shouldTreatCurrentTurnAsSoftPlanApproval(msg.data.num_turns)) {
-            this.markPendingPlanApproval("soft-plan");
-          }
-
           // Use pendingPlanApproval OR lastTurnHadQuestion — pendingPlanApproval
           // is authoritative for the plan approval path (it survives text resets).
           const needsInput = this.pendingPlanApproval || this.lastTurnHadQuestion;
@@ -635,11 +622,15 @@ export class Session extends EventEmitter {
           this.turnInProgress = hasPending;
           if (needsInput && !this.waitingForInputFired) {
             this.waitingForInputFired = true;
+            if (!this.pendingPlanApproval) {
+              this.applyControlEvent({ type: "input.requested" });
+            }
             this.emit("turnEnd", this, true);
           } else if (hasPending) {
             // Follow-up user messages were queued during this turn; keep the
             // session alive so the harness can consume them on the next turn.
           } else if (!needsInput) {
+            this.applyControlEvent({ type: "terminal.entered" });
             this.emit("turnEnd", this, false);
             // `complete("done")` means "natural turn completion with no user
             // input needed". This is intentionally different from `kill("done")`:
@@ -657,5 +648,66 @@ export class Session extends EventEmitter {
         // Keepalive ping for long-running subprocesses with no output.
       }
     }
+  }
+
+  private buildRoute(): SessionRoute | undefined {
+    const originChannel = this.originChannel?.trim();
+    let provider: string | undefined;
+    let accountId: string | undefined;
+    let target: string | undefined;
+    if (originChannel) {
+      const parts = originChannel.split("|").map((part) => part.trim()).filter(Boolean);
+      provider = parts[0];
+      if (parts.length >= 3) {
+        accountId = parts[1];
+        target = parts[2];
+      } else if (parts.length >= 2) {
+        target = parts[1];
+      }
+    }
+    const threadId = this.originThreadId != null ? String(this.originThreadId) : undefined;
+    if (!provider && !target && !threadId && !this.originSessionKey) return undefined;
+    return {
+      provider,
+      accountId,
+      target,
+      threadId,
+      sessionKey: this.originSessionKey,
+    };
+  }
+
+  controlStateSnapshot(): SessionControlState {
+    return {
+      status: this._status,
+      lifecycle: this.lifecycle,
+      approvalState: this.approvalState,
+      worktreeState: this.worktreeState,
+      runtimeState: this.runtimeState,
+      deliveryState: this.deliveryState,
+      pendingPlanApproval: this.pendingPlanApproval,
+      planApprovalContext: this.planApprovalContext,
+      planModeApproved: this.planModeApproved,
+    };
+  }
+
+  private applyControlEvent(event: SessionControlEvent): void {
+    const next = reduceSessionControlState(this.controlStateSnapshot(), event);
+    this.applyControlState(next);
+  }
+
+  applyControlPatch(patch: SessionControlPatch): void {
+    const next = applySessionControlPatch(this.controlStateSnapshot(), patch);
+    this.applyControlState(next);
+  }
+
+  private applyControlState(next: SessionControlState): void {
+    this.lifecycle = next.lifecycle;
+    this.approvalState = next.approvalState;
+    this.worktreeState = next.worktreeState;
+    this.runtimeState = next.runtimeState;
+    this.deliveryState = next.deliveryState;
+    this.pendingPlanApproval = next.pendingPlanApproval;
+    this.planApprovalContext = next.planApprovalContext;
+    this.planModeApproved = next.planModeApproved;
   }
 }

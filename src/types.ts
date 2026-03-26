@@ -20,6 +20,32 @@ export interface OpenClawPluginToolContext {
 
 /** Runtime lifecycle state for a session. */
 export type SessionStatus = "starting" | "running" | "completed" | "failed" | "killed";
+export type SessionLifecycle =
+  | "starting"
+  | "active"
+  | "awaiting_plan_decision"
+  | "awaiting_user_input"
+  | "awaiting_worktree_decision"
+  | "suspended"
+  | "terminal";
+export type SessionApprovalState =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "changes_requested"
+  | "rejected";
+export type SessionWorktreeState =
+  | "none"
+  | "provisioned"
+  | "pending_decision"
+  | "merge_in_progress"
+  | "pr_in_progress"
+  | "merged"
+  | "pr_open"
+  | "dismissed"
+  | "cleanup_failed";
+export type SessionRuntimeState = "live" | "stopped";
+export type SessionDeliveryState = "idle" | "notifying" | "wake_pending" | "failed";
 
 /** Terminal reason used for lifecycle messaging and auto-resume policy. */
 export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "shutdown" | "done" | "unknown";
@@ -30,6 +56,40 @@ export type PlanApprovalContext = "plan-mode" | "soft-plan";
 export type WorktreeStrategy = "off" | "manual" | "ask" | "delegate" | "auto-merge" | "auto-pr";
 export type CodexApprovalPolicy = "never" | "on-request";
 export type ReasoningEffort = "low" | "medium" | "high";
+export type SessionActionKind =
+  | "plan-approve"
+  | "plan-request-changes"
+  | "plan-reject"
+  | "worktree-merge"
+  | "worktree-create-pr"
+  | "worktree-update-pr"
+  | "worktree-view-pr"
+  | "worktree-decide-later"
+  | "worktree-dismiss"
+  | "session-resume"
+  | "session-restart"
+  | "view-output"
+  | "question-answer";
+
+export interface SessionRoute {
+  provider?: string;
+  accountId?: string;
+  target?: string;
+  threadId?: string;
+  sessionKey?: string;
+}
+
+export interface SessionActionToken {
+  id: string;
+  sessionId: string;
+  kind: SessionActionKind;
+  createdAt: number;
+  expiresAt?: number;
+  consumedAt?: number;
+  optionIndex?: number;
+  label?: string;
+  targetUrl?: string;
+}
 
 /** Harness-scoped launch defaults and model restrictions. */
 export interface HarnessConfig {
@@ -147,12 +207,18 @@ export interface PersistedSessionInfo {
   createdAt?: number;
   completedAt?: number;
   status: SessionStatus;
+  lifecycle?: SessionLifecycle;
+  approvalState?: SessionApprovalState;
+  worktreeState?: SessionWorktreeState;
+  runtimeState?: SessionRuntimeState;
+  deliveryState?: SessionDeliveryState;
   killReason?: KillReason;
   costUsd: number;
   originAgentId?: string;
   originChannel?: string;
   originThreadId?: string | number;
   originSessionKey?: string;
+  route?: SessionRoute;
   outputPath?: string;
   harness?: string;
   currentPermissionMode?: PermissionMode;
@@ -190,6 +256,7 @@ export interface PersistedSessionInfo {
   worktreeDisposition?: "active" | "pr-opened" | "merged" | "dismissed" | "no-change-cleaned";
   /** ISO timestamp when the worktree was dismissed. */
   worktreeDismissedAt?: string;
+  resumable?: boolean;
 }
 
 /** In-memory usage metrics shown by `agent_stats`. */

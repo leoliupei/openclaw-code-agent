@@ -1,9 +1,23 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { SessionStore } from "../src/session-store";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+
+const STORE_SCHEMA_VERSION = 2;
+
+function writeStore(
+  indexPath: string,
+  sessions: Record<string, unknown>[],
+  actionTokens: Record<string, unknown>[] = [],
+): void {
+  writeFileSync(indexPath, JSON.stringify({
+    schemaVersion: STORE_SCHEMA_VERSION,
+    sessions,
+    actionTokens,
+  }), "utf-8");
+}
 
 describe("SessionStore getLatestPersistedByName", () => {
   let store: SessionStore;
@@ -96,8 +110,8 @@ describe("SessionStore path resolution", () => {
     const openclawHome = join(dir, "ignored-openclaw-home");
     const homeIndex = join(openclawHome, "code-agent-sessions.json");
     mkdirSync(openclawHome, { recursive: true });
-    writeFileSync(explicit, "[]", "utf-8");
-    writeFileSync(homeIndex, "[]", "utf-8");
+    writeStore(explicit, []);
+    writeStore(homeIndex, []);
 
     const store = new SessionStore({
       env: {
@@ -111,14 +125,16 @@ describe("SessionStore path resolution", () => {
     assert.equal(existsSync(homeIndex), true);
     const explicitJson = JSON.parse(readFileSync(explicit, "utf-8"));
     const homeJson = JSON.parse(readFileSync(homeIndex, "utf-8"));
-    assert.equal(explicitJson.length, 1);
-    assert.equal(homeJson.length, 0);
+    assert.equal(explicitJson.schemaVersion, STORE_SCHEMA_VERSION);
+    assert.equal(explicitJson.sessions.length, 1);
+    assert.equal(homeJson.schemaVersion, STORE_SCHEMA_VERSION);
+    assert.equal(homeJson.sessions.length, 0);
   });
 
   it("uses OPENCLAW_HOME when explicit sessions path is absent", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-home-"));
     const sessionsPath = join(dir, "code-agent-sessions.json");
-    writeFileSync(sessionsPath, "[]", "utf-8");
+    writeStore(sessionsPath, []);
 
     const store = new SessionStore({
       env: { OPENCLAW_HOME: dir },
@@ -126,14 +142,15 @@ describe("SessionStore path resolution", () => {
     markRunningAt(store, "home");
 
     const persisted = JSON.parse(readFileSync(sessionsPath, "utf-8"));
-    assert.equal(persisted.length, 1);
-    assert.equal(persisted[0].sessionId, "home");
+    assert.equal(persisted.schemaVersion, STORE_SCHEMA_VERSION);
+    assert.equal(persisted.sessions.length, 1);
+    assert.equal(persisted.sessions[0].sessionId, "home");
   });
 
   it("allows constructor indexPath override for deterministic callers", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-store-override-"));
     const indexPath = join(dir, "custom-index.json");
-    writeFileSync(indexPath, "[]", "utf-8");
+    writeStore(indexPath, []);
 
     const store = new SessionStore({
       indexPath,
@@ -146,7 +163,7 @@ describe("SessionStore path resolution", () => {
   it("rebuilds short session ID lookup from persisted index after restart", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-store-restart-"));
     const indexPath = join(dir, "sessions.json");
-    writeFileSync(indexPath, "[]", "utf-8");
+    writeStore(indexPath, []);
 
     const original = new SessionStore({
       indexPath,
@@ -169,17 +186,19 @@ describe("SessionStore path resolution", () => {
   it("preserves shutdown kill reason when reloading persisted sessions", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-store-shutdown-"));
     const indexPath = join(dir, "sessions.json");
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       sessionId: "lWi_9aoa",
       harnessSessionId: "h-shutdown",
       name: "codex-morning-report-telegram-400",
       prompt: "p",
       workdir: "/tmp",
       status: "killed",
+      lifecycle: "terminal",
+      runtimeState: "stopped",
       killReason: "shutdown",
       completedAt: 200,
       costUsd: 0,
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({
       indexPath,
@@ -188,6 +207,35 @@ describe("SessionStore path resolution", () => {
 
     const persisted = store.getPersistedSession("lWi_9aoa");
     assert.equal(persisted?.killReason, "shutdown");
+  });
+
+  it("archives legacy array stores and starts fresh", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-store-legacy-"));
+    const indexPath = join(dir, "sessions.json");
+    writeFileSync(indexPath, JSON.stringify([{
+      sessionId: "legacy-session",
+      harnessSessionId: "h-legacy",
+      name: "legacy",
+      prompt: "p",
+      workdir: "/tmp",
+      status: "completed",
+      costUsd: 0,
+    }]), "utf-8");
+
+    const store = new SessionStore({
+      indexPath,
+      env: {},
+    });
+
+    assert.equal(store.listPersistedSessions().length, 0);
+
+    const saved = JSON.parse(readFileSync(indexPath, "utf-8"));
+    assert.equal(saved.schemaVersion, STORE_SCHEMA_VERSION);
+    assert.deepEqual(saved.sessions, []);
+    assert.deepEqual(saved.actionTokens, []);
+
+    const archived = readdirSync(dir).filter((name) => name.startsWith("sessions.json.legacy-"));
+    assert.equal(archived.length, 1);
   });
 });
 
@@ -205,15 +253,16 @@ describe("SessionStore new worktree lifecycle fields", () => {
   });
 
   it("persists and reloads 'delegate' worktree strategy", () => {
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-delegate",
       name: "delegate-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "terminal",
       costUsd: 0,
       worktreeStrategy: "delegate",
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-delegate");
@@ -221,15 +270,16 @@ describe("SessionStore new worktree lifecycle fields", () => {
   });
 
   it("persists and reloads worktreeBaseBranch", () => {
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-base",
       name: "base-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "terminal",
       costUsd: 0,
       worktreeBaseBranch: "develop",
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-base");
@@ -238,15 +288,17 @@ describe("SessionStore new worktree lifecycle fields", () => {
 
   it("persists and reloads pendingWorktreeDecisionSince", () => {
     const ts = new Date().toISOString();
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-pending",
       name: "pending-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "awaiting_worktree_decision",
+      worktreeState: "pending_decision",
       costUsd: 0,
       pendingWorktreeDecisionSince: ts,
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-pending");
@@ -254,15 +306,16 @@ describe("SessionStore new worktree lifecycle fields", () => {
   });
 
   it("persists and reloads planApproval", () => {
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-plan-approval",
       name: "plan-approval-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "terminal",
       costUsd: 0,
       planApproval: "approve",
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-plan-approval");
@@ -270,15 +323,16 @@ describe("SessionStore new worktree lifecycle fields", () => {
   });
 
   it("persists and reloads worktreeDisposition", () => {
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-disp",
       name: "disp-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "terminal",
       costUsd: 0,
       worktreeDisposition: "pr-opened",
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-disp");
@@ -286,15 +340,16 @@ describe("SessionStore new worktree lifecycle fields", () => {
   });
 
   it("normalizes unknown worktreeDisposition to undefined", () => {
-    writeFileSync(indexPath, JSON.stringify([{
+    writeStore(indexPath, [{
       harnessSessionId: "h-bad-disp",
       name: "bad-disp-session",
       prompt: "p",
       workdir: "/tmp",
       status: "completed",
+      lifecycle: "terminal",
       costUsd: 0,
       worktreeDisposition: "unknown-value",
-    }]), "utf-8");
+    }]);
 
     const store = new SessionStore({ indexPath, env: {} });
     const persisted = store.getPersistedSession("h-bad-disp");

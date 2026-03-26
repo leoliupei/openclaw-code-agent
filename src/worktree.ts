@@ -2,6 +2,7 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync, statfsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { pluginConfig } from "./config";
 
 // Cached availability checks
 let gitAvailableCache: boolean | undefined;
@@ -44,6 +45,7 @@ function getRepoRoot(dir: string): string | undefined {
  */
 function getWorktreeBaseDir(repoDir?: string): string {
   if (process.env.OPENCLAW_WORKTREE_DIR) return process.env.OPENCLAW_WORKTREE_DIR;
+  if (pluginConfig.worktreeDir) return pluginConfig.worktreeDir;
   if (repoDir) {
     const root = getRepoRoot(repoDir);
     if (root) return join(root, ".worktrees");

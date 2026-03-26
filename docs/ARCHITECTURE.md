@@ -18,7 +18,7 @@ SessionManager
   -> openclaw gateway call chat.send
   -> openclaw system event --mode now
 
-Telegram callbacks
+Interactive callbacks (Telegram / Discord)
   -> CallbackHandler
   -> agent_merge / agent_pr / agent_respond
 ```
@@ -31,7 +31,7 @@ Telegram callbacks
 
 - 10 tools
 - 7 chat commands
-- the Telegram interactive handler
+- the shared interactive callback handlers for Telegram and Discord
 - the background session service
 
 Service startup loads config, instantiates `SessionManager`, restores persisted state, and runs orphan worktree cleanup.
@@ -51,8 +51,10 @@ Key behavior:
 
 - runtime sessions are garbage-collected after `sessionGcAgeMinutes`
 - persisted session records remain resumable after runtime GC
-- fresh sessions inherit admin-pinned `defaultWorktreeStrategy` unless that default is `delegate`
+- fresh launches are resume-first: linked resumable sessions must be resumed or forked unless `force_new_session=true`
+- explicit per-launch `worktreeStrategy` overrides the plugin default
 - sessions with pending worktree decisions are kept visible and protected from cleanup
+- persisted control-state patches are mirrored back onto active runtime sessions to keep lifecycle/worktree state coherent
 
 ### `Session`
 
@@ -64,7 +66,7 @@ Key behavior:
 - validates state transitions
 - emits `statusChange`, `output`, `toolUse`, and `turnEnd`
 
-There is no separate hibernation state. A non-question turn finishes as `completed` with reason `done`, and the next `agent_respond` resumes it.
+`Session` now uses an explicit control-state reducer for lifecycle, approval, runtime, and worktree transitions. Suspended sessions are explicitly resumable; terminal sessions stay terminal.
 
 ### Harness Abstraction
 
@@ -92,7 +94,7 @@ Important mapping detail:
 
 ### `CallbackHandler`
 
-`src/callback-handler.ts` handles Telegram inline callbacks under the `code-agent` namespace.
+`src/callback-handler.ts` handles interactive callbacks under the `code-agent` namespace for both Telegram and Discord.
 
 It dispatches:
 
@@ -102,7 +104,7 @@ It dispatches:
 - retry/output shortcuts
 - worktree actions (`merge`, `pr`, `new-pr`)
 
-This keeps plan approval and worktree decisions inside the plugin instead of leaking raw callback payloads into chat.
+This keeps plan approval and worktree decisions inside the plugin instead of leaking semantic callback payloads into chat. Buttons carry opaque action tokens, not `verb:session` strings.
 
 ### Supporting Modules
 
@@ -148,7 +150,7 @@ When a session completes with worktree metadata:
 - `ask`: keep the branch local, notify the user, and attach `Merge locally` / `Create PR` buttons
 - `delegate`: keep the branch local, send a brief user ping, and wake the orchestrator with diff context
 - `auto-merge`: attempt merge automatically and spawn a conflict resolver on failure
-- `auto-pr`: deprecated alias of `ask`; keep the branch local until PR creation is explicitly chosen
+- `auto-pr`: attempt PR creation/update automatically; fall back to explicit pending decision state on failure
 - `manual`: keep the branch for explicit follow-up
 
 `ask` and `delegate` suppress the normal turn-complete wake because the worktree decision message is the completion signal.
@@ -156,7 +158,7 @@ When a session completes with worktree metadata:
 ### Resume, Redirect, And Recovery
 
 - `agent_respond(..., interrupt=true)` aborts the current turn in place and sends a redirect notification
-- terminal sessions auto-resume on the next `agent_respond`, except `startup-timeout`
+- only explicitly suspended sessions are resumable through `agent_respond` / `agent_resume`
 - sessions found in `running` state during startup recovery are marked killed and remain resumable
 - persisted Codex resume state is treated more conservatively after restart because thread reuse is brittle across auth and process boundaries
 

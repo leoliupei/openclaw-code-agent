@@ -183,8 +183,8 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
       wakeMessage: "Delegated worktree decision wake",
       notifyUser: "always",
       buttons: [[
-        { label: "✅ Merge", callbackData: "code-agent:merge:session-buttons" },
-        { label: "📬 Open PR", callbackData: "code-agent:pr:session-buttons" },
+        { label: "✅ Merge", callbackData: "token-merge" },
+        { label: "📬 Open PR", callbackData: "token-pr" },
       ]],
     });
     const calls = await waitForCalls(logPath, 2);
@@ -197,8 +197,8 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
     const notifyArgs = parseMessageSendArgs(notifyCall);
     assert.equal(notifyArgs.message, "🔀 Worktree decision required");
     assert.equal(notifyArgs.buttons, JSON.stringify([[
-      { text: "✅ Merge", callback_data: "code-agent:merge:session-buttons" },
-      { text: "📬 Open PR", callback_data: "code-agent:pr:session-buttons" },
+      { text: "✅ Merge", callback_data: "token-merge" },
+      { text: "📬 Open PR", callback_data: "token-pr" },
     ]]));
     const wakeParams = parseChatSendParams(wakeCall);
     assert.equal(wakeParams.message, "Delegated worktree decision wake");

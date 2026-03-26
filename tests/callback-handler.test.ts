@@ -28,19 +28,23 @@ describe("createCallbackHandler()", () => {
     setSessionManager(null);
   });
 
-  it("prompts for freeform reply on reply callbacks", async () => {
+  it("surfaces PR URLs through explicit view-pr actions", async () => {
     setSessionManager({
-      resolve: () => ({ name: "demo-session" }),
-      getPersistedSession: () => undefined,
+      consumeActionToken: () => ({
+        sessionId: "sess-1",
+        kind: "worktree-view-pr",
+        targetUrl: "https://github.com/example/repo/pull/123",
+      }),
+      getPersistedSession: () => ({ worktreePrUrl: "https://github.com/example/repo/pull/123" }),
     } as any);
 
     const handler = createCallbackHandler();
-    const state = createCtx("reply:sess-1");
+    const state = createCtx("token-1");
     const result = await handler.handler(state.ctx as any);
 
     assert.deepEqual(result, { handled: true });
     assert.equal(state.buttonsCleared, 1);
-    assert.equal(state.replies[0], "💬 Type your reply for [demo-session] and I'll forward it to the agent.");
+    assert.equal(state.replies[0], "PR: https://github.com/example/repo/pull/123");
   });
 
   it("approves pending plans through executeRespond", async () => {
@@ -52,13 +56,14 @@ describe("createCallbackHandler()", () => {
     });
 
     setSessionManager({
+      consumeActionToken: () => ({ sessionId: "test-id", kind: "plan-approve" }),
       resolve: () => session,
       getPersistedSession: () => undefined,
       notifySession: () => {},
     } as any);
 
     const handler = createCallbackHandler();
-    const state = createCtx("approve:test-id");
+    const state = createCtx("token-approve");
     const result = await handler.handler(state.ctx as any);
 
     assert.deepEqual(result, { handled: true });
@@ -69,17 +74,37 @@ describe("createCallbackHandler()", () => {
   it("resolves question-answer callbacks by session and option index", async () => {
     const resolved: Array<{ sessionId: string; optionIndex: number }> = [];
     setSessionManager({
+      consumeActionToken: () => ({ sessionId: "sess-42", kind: "question-answer", optionIndex: 1 }),
       resolveAskUserQuestion: (sessionId: string, optionIndex: number) => {
         resolved.push({ sessionId, optionIndex });
       },
     } as any);
 
     const handler = createCallbackHandler();
-    const state = createCtx("question-answer:sess-42:1");
+    const state = createCtx("token-question");
     const result = await handler.handler(state.ctx as any);
 
     assert.deepEqual(result, { handled: true });
     assert.deepEqual(resolved, [{ sessionId: "sess-42", optionIndex: 1 }]);
     assert.equal(state.replies[0], "✅ Answer submitted.");
+  });
+
+  it("can be registered for Discord with the same action-token contract", async () => {
+    setSessionManager({
+      consumeActionToken: () => ({
+        sessionId: "sess-discord",
+        kind: "worktree-view-pr",
+        targetUrl: "https://github.com/example/repo/pull/999",
+      }),
+      getPersistedSession: () => ({ worktreePrUrl: "https://github.com/example/repo/pull/999" }),
+    } as any);
+
+    const handler = createCallbackHandler("discord");
+    const state = createCtx("discord-token");
+    const result = await handler.handler(state.ctx as any);
+
+    assert.equal(handler.channel, "discord");
+    assert.deepEqual(result, { handled: true });
+    assert.equal(state.replies[0], "PR: https://github.com/example/repo/pull/999");
   });
 });

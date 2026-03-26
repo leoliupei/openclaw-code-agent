@@ -19,6 +19,20 @@ function isAgentPrParams(value: unknown): value is AgentPrParams {
   return typeof params.session === "string";
 }
 
+type AgentPrExecuteResult = {
+  content: Array<{ type: "text"; text: string }>;
+  meta: {
+    success: boolean;
+    state:
+      | "error"
+      | "pr_open"
+      | "pr_updated"
+      | "merged"
+      | "closed"
+      | "created";
+  };
+};
+
 /** Register the `agent_pr` tool factory. */
 export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
   return {
@@ -34,15 +48,15 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
     }),
     async execute(_id: string, params: unknown) {
       if (!sessionManager) {
-        return { content: [{ type: "text", text: "Error: SessionManager not initialized. The code-agent service must be running." }] };
+        return { content: [{ type: "text", text: "Error: SessionManager not initialized. The code-agent service must be running." }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
       if (!isAgentPrParams(params)) {
-        return { content: [{ type: "text", text: "Error: Invalid parameters. Expected { session, title?, body?, base_branch?, force_new? }." }] };
+        return { content: [{ type: "text", text: "Error: Invalid parameters. Expected { session, title?, body?, base_branch?, force_new? }." }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
       // Check if gh CLI is available
       if (!isGitHubCLIAvailable()) {
-        return { content: [{ type: "text", text: "Error: GitHub CLI (gh) is not available. Install it and authenticate to create PRs." }] };
+        return { content: [{ type: "text", text: "Error: GitHub CLI (gh) is not available. Install it and authenticate to create PRs." }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
       // Resolve session (active or persisted)
@@ -50,7 +64,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
       const persistedSession = sessionManager.getPersistedSession(params.session);
 
       if (!targetSession && !persistedSession) {
-        return { content: [{ type: "text", text: `Error: Session "${params.session}" not found.` }] };
+        return { content: [{ type: "text", text: `Error: Session "${params.session}" not found.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
       // Extract worktree info
@@ -59,7 +73,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
       const sessionName = targetSession?.name ?? persistedSession?.name ?? params.session;
 
       if (!worktreePath || !originalWorkdir) {
-        return { content: [{ type: "text", text: `Error: Session "${params.session}" does not have a worktree.` }] };
+        return { content: [{ type: "text", text: `Error: Session "${params.session}" does not have a worktree.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
       // Fall back to persisted branch name if live lookup fails (worktree directory may have been removed)
@@ -67,7 +81,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
       const derivedBranch = `agent/${sessionName}`;
       const branchName = liveBranch ?? persistedSession?.worktreeBranch ?? derivedBranch;
       if (!branchName) {
-        return { content: [{ type: "text", text: `Error: Cannot determine branch name for worktree ${worktreePath}. The worktree may have been removed and no persisted branch name is available.` }] };
+        return { content: [{ type: "text", text: `Error: Cannot determine branch name for worktree ${worktreePath}. The worktree may have been removed and no persisted branch name is available.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
       if (!existsSync(worktreePath)) {
         console.info(`[agent_pr] Worktree directory ${worktreePath} no longer exists; proceeding with branch "${branchName}" via originalWorkdir (${originalWorkdir})`);
@@ -81,22 +95,23 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
 
       // Push branch first (required for PR operations)
       if (!pushBranch(originalWorkdir, branchName)) {
-        return { content: [{ type: "text", text: `❌ Failed to push ${branchName} — cannot create/update PR` }] };
+        return { content: [{ type: "text", text: `❌ Failed to push ${branchName} — cannot create/update PR` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
       // Sync PR state from GitHub
       const prStatus = syncWorktreePR(originalWorkdir, branchName, targetRepo);
 
       // Handle force_new parameter
-      if (params.force_new && prStatus.exists) {
+        if (params.force_new && prStatus.exists) {
         return {
           content: [{
             type: "text",
             text: `⚠️  Cannot create new PR: A PR already exists for ${branchName} (${prStatus.state}).\n\n` +
                   `Existing PR: ${prStatus.url}\n\n` +
                   `To create a new PR, you must first close/merge the existing PR manually or use a different branch.`
-          }]
-        };
+          }],
+          meta: { success: false, state: "error" },
+        } satisfies AgentPrExecuteResult;
       }
 
       // PR Lifecycle Handling
@@ -132,6 +147,10 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
               sessionManager.updatePersistedSession(harnessId, {
                 worktreePrUrl: prStatus.url,
                 worktreePrNumber: prStatus.number,
+                lifecycle: "terminal",
+                worktreeState: "pr_open",
+                pendingWorktreeDecisionSince: undefined,
+                lastWorktreeReminderAt: undefined,
               });
             }
             const updateOutcomeLine = formatWorktreeOutcomeLine({
@@ -147,16 +166,18 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
               content: [{
                 type: "text",
                 text: `${updateOutcomeLine}\n\n📝 Added comment detailing ${diffSummary.commits} new commits (+${diffSummary.insertions} / -${diffSummary.deletions})`
-              }]
-            };
+              }],
+              meta: { success: true, state: "pr_updated" },
+            } satisfies AgentPrExecuteResult;
           } else {
             return {
               content: [{
                 type: "text",
                 text: `⚠️  Pushed to ${prStatus.url} but failed to add comment.\n\n` +
                       `${diffSummary.commits} new commits (+${diffSummary.insertions} / -${diffSummary.deletions})`
-              }]
-            };
+              }],
+              meta: { success: true, state: "pr_open" },
+            } satisfies AgentPrExecuteResult;
           }
         } else {
           // No new commits
@@ -164,6 +185,10 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
             sessionManager.updatePersistedSession(harnessId, {
               worktreePrUrl: prStatus.url,
               worktreePrNumber: prStatus.number,
+              lifecycle: "terminal",
+              worktreeState: "pr_open",
+              pendingWorktreeDecisionSince: undefined,
+              lastWorktreeReminderAt: undefined,
             });
           }
           return {
@@ -171,8 +196,9 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
               type: "text",
               text: `ℹ️  PR already exists and is up to date: ${prStatus.url}\n\n` +
                     `No new commits to push.`
-            }]
-          };
+            }],
+            meta: { success: true, state: "pr_open" },
+          } satisfies AgentPrExecuteResult;
         }
       } else if (prStatus.exists && prStatus.state === "merged") {
         // Case: PR was merged
@@ -180,6 +206,13 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
           sessionManager.updatePersistedSession(harnessId, {
             worktreePrUrl: prStatus.url,
             worktreePrNumber: prStatus.number,
+            worktreeMerged: true,
+            worktreeMergedAt: new Date().toISOString(),
+            lifecycle: "terminal",
+            worktreeState: "merged",
+            pendingWorktreeDecisionSince: undefined,
+            lastWorktreeReminderAt: undefined,
+            worktreeDisposition: "merged",
           });
         }
         return {
@@ -187,8 +220,9 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
             type: "text",
             text: `✅ PR was already merged: ${prStatus.url}\n\n` +
                   `The worktree branch ${branchName} can be cleaned up with agent_merge(delete_branch=true).`
-          }]
-        };
+          }],
+          meta: { success: true, state: "merged" },
+        } satisfies AgentPrExecuteResult;
       } else if (prStatus.exists && prStatus.state === "closed") {
         // Case: PR was closed without merging — ask user what to do
         return {
@@ -200,8 +234,9 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
                   `2. Close and delete the branch with agent_merge(delete_branch=true), then start a new session/worktree\n` +
                   `3. Manually delete the closed PR on GitHub, then call agent_pr(force_new=true) to create a fresh PR\n\n` +
                   `(This tool cannot automatically reopen or recreate PRs to avoid unintended actions.)`
-          }]
-        };
+          }],
+          meta: { success: false, state: "closed" },
+        } satisfies AgentPrExecuteResult;
       } else {
         // Case: No PR exists — create new PR
         const prTitle = params.title ?? `[openclaw-code-agent] ${sessionName}`;
@@ -245,8 +280,10 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
             sessionManager.updatePersistedSession(harnessId, {
               worktreePrUrl: prResult.prUrl,
               worktreePrNumber: newPrStatus.number,
+              lifecycle: "terminal",
               pendingWorktreeDecisionSince: undefined,
               lastWorktreeReminderAt: undefined,
+              worktreeState: "pr_open",
               worktreeDisposition: "pr-opened",
             });
           }
@@ -263,9 +300,9 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
             outcomeLine
           );
 
-          return { content: [{ type: "text", text: outcomeLine }] };
+          return { content: [{ type: "text", text: outcomeLine }], meta: { success: true, state: "created" } } satisfies AgentPrExecuteResult;
         } else {
-          return { content: [{ type: "text", text: `❌ Failed to create PR: ${prResult.error ?? "unknown error"}` }] };
+          return { content: [{ type: "text", text: `❌ Failed to create PR: ${prResult.error ?? "unknown error"}` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
         }
       }
     },

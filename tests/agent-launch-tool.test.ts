@@ -200,6 +200,89 @@ describe("agent_launch tool defaults", () => {
     assert.ok(spawnConfig, "spawn should be called");
     assert.equal(spawnConfig?.planApproval, "ask");
   });
+
+  it("blocks a fresh launch when a linked resumable session already exists", async () => {
+    let spawnCalled = false;
+
+    setSessionManager({
+      list: () => [],
+      listPersistedSessions: () => [{
+        sessionId: "sess-resume",
+        harnessSessionId: "h-resume",
+        name: "existing-linked",
+        prompt: "old prompt",
+        workdir: "/tmp",
+        status: "killed",
+        lifecycle: "suspended",
+        costUsd: 0,
+        originSessionKey: "agent:main:telegram:group:123:topic:42",
+        resumable: true,
+      }],
+      spawn() {
+        spawnCalled = true;
+        return { id: "should-not-spawn", name: "bad" };
+      },
+    } as any);
+
+    const tool = makeAgentLaunchTool({
+      workspaceDir: "/tmp",
+      sessionKey: "agent:main:telegram:group:123:topic:42",
+      messageChannel: "telegram",
+      chatId: "123",
+      messageThreadId: 42,
+    } as any);
+    const result = await tool.execute("tool-id", { prompt: "Continue the work" });
+    const text = (result.content[0] as { text: string }).text;
+
+    assert.equal(spawnCalled, false);
+    assert.match(text, /Resume-first protection blocked a fresh launch/);
+    assert.match(text, /agent_respond\(session='sess-resume'/);
+    assert.match(text, /force_new_session=true/);
+  });
+
+  it("allows an explicit force_new_session override for linked resumable sessions", async () => {
+    let spawnConfig: Record<string, unknown> | undefined;
+
+    setSessionManager({
+      list: () => [],
+      listPersistedSessions: () => [{
+        sessionId: "sess-resume",
+        harnessSessionId: "h-resume",
+        name: "existing-linked",
+        prompt: "old prompt",
+        workdir: "/tmp",
+        status: "killed",
+        lifecycle: "suspended",
+        costUsd: 0,
+        originSessionKey: "agent:main:telegram:group:123:topic:42",
+        resumable: true,
+      }],
+      spawn(config: Record<string, unknown>) {
+        spawnConfig = config;
+        return {
+          id: "sess-7",
+          name: "forced-new",
+          model: config.model,
+        };
+      },
+    } as any);
+
+    const tool = makeAgentLaunchTool({
+      workspaceDir: "/tmp",
+      sessionKey: "agent:main:telegram:group:123:topic:42",
+      messageChannel: "telegram",
+      chatId: "123",
+      messageThreadId: 42,
+    } as any);
+    const result = await tool.execute("tool-id", {
+      prompt: "New independent task",
+      force_new_session: true,
+    });
+
+    assert.ok(spawnConfig, "spawn should be called");
+    assert.equal(spawnConfig?.prompt, "New independent task");
+    assert.match((result.content[0] as { text: string }).text, /Force new session: true/);
+  });
 });
 
 describe("agent_launch allowedModels validation", () => {

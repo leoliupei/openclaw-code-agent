@@ -382,6 +382,86 @@ describe("SessionManager.listPersistedSessions()", () => {
   });
 });
 
+describe("SessionManager.updatePersistedSession()", () => {
+  let sm: SessionManager;
+
+  beforeEach(() => {
+    sm = new SessionManager(5);
+  });
+
+  it("syncs explicit lifecycle/worktree patches onto the live session", () => {
+    const session = fakeSession({
+      id: "live-1",
+      harnessSessionId: "h-live-1",
+      lifecycle: "terminal",
+      worktreeState: "provisioned",
+      worktreePrUrl: undefined,
+      worktreePrNumber: undefined,
+      worktreeMerged: false,
+    });
+    (sm as any).sessions.set(session.id, session);
+    (sm as any).store.persisted.set("h-live-1", {
+      harnessSessionId: "h-live-1",
+      sessionId: "live-1",
+      name: "session",
+      prompt: "test",
+      workdir: "/tmp",
+      status: "completed",
+      lifecycle: "terminal",
+      worktreeState: "provisioned",
+      costUsd: 0,
+    });
+
+    const changed = sm.updatePersistedSession("h-live-1", {
+      lifecycle: "awaiting_worktree_decision",
+      worktreeState: "pending_decision",
+      pendingWorktreeDecisionSince: "2026-03-25T00:00:00.000Z",
+    });
+
+    assert.equal(changed, true);
+    assert.equal(session.lifecycle, "awaiting_worktree_decision");
+    assert.equal(session.worktreeState, "pending_decision");
+  });
+
+  it("syncs resolved PR state onto the live session", () => {
+    const session = fakeSession({
+      id: "live-2",
+      harnessSessionId: "h-live-2",
+      lifecycle: "awaiting_worktree_decision",
+      worktreeState: "pending_decision",
+      worktreePrUrl: undefined,
+      worktreePrNumber: undefined,
+      worktreeMerged: false,
+      worktreeMergedAt: undefined,
+    });
+    (sm as any).sessions.set(session.id, session);
+    (sm as any).store.persisted.set("h-live-2", {
+      harnessSessionId: "h-live-2",
+      sessionId: "live-2",
+      name: "session",
+      prompt: "test",
+      workdir: "/tmp",
+      status: "completed",
+      lifecycle: "awaiting_worktree_decision",
+      worktreeState: "pending_decision",
+      costUsd: 0,
+    });
+
+    const changed = sm.updatePersistedSession("h-live-2", {
+      lifecycle: "terminal",
+      worktreeState: "pr_open",
+      worktreePrUrl: "https://github.com/example/repo/pull/7",
+      worktreePrNumber: 7,
+    });
+
+    assert.equal(changed, true);
+    assert.equal(session.lifecycle, "terminal");
+    assert.equal(session.worktreeState, "pr_open");
+    assert.equal(session.worktreePrUrl, "https://github.com/example/repo/pull/7");
+    assert.equal(session.worktreePrNumber, 7);
+  });
+});
+
 // =========================================================================
 // recordSessionMetrics
 // =========================================================================
@@ -627,8 +707,8 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.notifyUser, "always");
     assert.match(request.wakeMessage, /Name: deterministic/);
     assert.match(request.wakeMessage, /Status: running/);
-    assert.match(request.wakeMessage, /Looks like waiting for user input: yes/);
-    assert.match(request.userMessage, /⏸️ \[deterministic\] Paused after turn \| Auto-resumable/);
+    assert.match(request.wakeMessage, /Last output/);
+    assert.match(request.userMessage, /⏸️ \[deterministic\] Turn completed/);
   });
 
   it("routes explicit question turns to waiting wake path", () => {
@@ -671,9 +751,9 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
     assert.match(request.userMessage, /Plan ready for approval/);
-    assert.equal(request.buttons[0][0].label, "✅ Approve");
-    assert.equal(request.buttons[0][1].label, "❌ Reject");
-    assert.equal(request.buttons[0][2].label, "✏️ Revise");
+    assert.equal(request.buttons[0][0].label, "Approve");
+    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][2].label, "Reject");
   });
 
   it("shows approval buttons for Codex plan sessions when planApproval=ask", () => {
@@ -693,9 +773,9 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
-    assert.equal(request.buttons[0][0].label, "✅ Approve");
-    assert.equal(request.buttons[0][1].label, "❌ Reject");
-    assert.equal(request.buttons[0][2].label, "✏️ Revise");
+    assert.equal(request.buttons[0][0].label, "Approve");
+    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][2].label, "Reject");
   });
 
   it("suppresses plan approval buttons when the session override delegates approval", () => {
@@ -741,16 +821,14 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.buttons, undefined);
   });
 
-  it("shows approval buttons for soft-plan bypass sessions when planApproval=ask", () => {
+  it("shows approval buttons for explicit plan approval sessions when planApproval=ask", () => {
     const s = fakeSession({
-      id: "s-soft-plan-ask",
-      name: "soft-plan-ask",
+      id: "s-plan-ask",
+      name: "plan-ask",
       status: "running",
-      currentPermissionMode: "bypassPermissions",
       pendingPlanApproval: true,
-      planApprovalContext: "soft-plan",
       planApproval: "ask",
-      getOutput: () => ["Proposed plan:\n- Inspect state flow\n- Add buttons\n\nShould I continue?"],
+      getOutput: () => ["Proposed plan:\n- Inspect state flow\n- Add buttons"],
     });
 
     (sm as any).triggerWaitingForInputEvent(s);
@@ -759,8 +837,9 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
-    assert.equal(request.buttons[0][0].label, "✅ Approve");
-    assert.match(request.wakeMessageOnNotifyFailed, /approval resumes implementation/i);
+    assert.equal(request.buttons[0][0].label, "Approve");
+    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][2].label, "Reject");
   });
 
   it("routes bypass-permissions 'should I continue?' prompts through generic waiting only", () => {
@@ -800,7 +879,7 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
-    assert.equal(request.buttons[0][0].label, "✅ Approve");
+    assert.equal(request.buttons[0][0].label, "Approve");
   });
 
   it("de-dupes duplicate turn-end wake for the same turn marker", () => {
@@ -960,8 +1039,8 @@ describe("SessionManager terminal wake behavior", () => {
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
-    assert.equal(request.label, "notification");
-    assert.match(request.userMessage, /💤 \[idle-run\] Idle timeout/);
+    assert.equal(request.label, "suspended");
+    assert.match(request.userMessage, /💤 \[idle-run\] Suspended after idle timeout/);
   });
 
   it("uses explicit stopped wording for user-terminated sessions", () => {
@@ -1027,31 +1106,30 @@ describe("SessionManager.shouldRunWorktreeStrategy", () => {
     sm = new SessionManager(5);
   });
 
-  it("returns false when session phase is 'planning'", () => {
-    const session = fakeSession({ phase: "planning", pendingPlanApproval: false });
-    // Override phase property since fakeSession doesn't have a getter
-    Object.defineProperty(session, "phase", { get: () => "planning" });
+  it("returns false when session lifecycle is 'starting'", () => {
+    const session = fakeSession({ lifecycle: "starting", pendingPlanApproval: false });
+    Object.defineProperty(session, "lifecycle", { get: () => "starting" });
     const result = (sm as any).shouldRunWorktreeStrategy(session);
     assert.equal(result, false);
   });
 
-  it("returns false when session phase is 'awaiting-plan-approval'", () => {
+  it("returns false when session lifecycle is 'awaiting_plan_decision'", () => {
     const session = fakeSession({ pendingPlanApproval: true });
-    Object.defineProperty(session, "phase", { get: () => "awaiting-plan-approval" });
+    Object.defineProperty(session, "lifecycle", { get: () => "awaiting_plan_decision" });
     const result = (sm as any).shouldRunWorktreeStrategy(session);
     assert.equal(result, false);
   });
 
   it("returns false when pendingPlanApproval is true", () => {
     const session = fakeSession({ pendingPlanApproval: true });
-    Object.defineProperty(session, "phase", { get: () => "implementing" });
+    Object.defineProperty(session, "lifecycle", { get: () => "active" });
     const result = (sm as any).shouldRunWorktreeStrategy(session);
     assert.equal(result, false);
   });
 
-  it("returns true when session phase is 'implementing' and no pending plan approval", () => {
+  it("returns true when session lifecycle is 'active' and no pending plan approval", () => {
     const session = fakeSession({ pendingPlanApproval: false });
-    Object.defineProperty(session, "phase", { get: () => "implementing" });
+    Object.defineProperty(session, "lifecycle", { get: () => "active" });
     const result = (sm as any).shouldRunWorktreeStrategy(session);
     assert.equal(result, true);
   });
@@ -1068,7 +1146,7 @@ describe("SessionManager.handleAskUserQuestion()", () => {
     (sm as any).__dispatchCalls = [];
   });
 
-  it("bypasses CC worktree decision questions so the session can complete", async () => {
+  it("renders explicit question options as buttons without bypassing them", async () => {
     const session = fakeSession({
       id: "s-cc-worktree",
       name: "cc-worktree",
@@ -1076,7 +1154,7 @@ describe("SessionManager.handleAskUserQuestion()", () => {
     });
     (sm as any).sessions.set(session.id, session);
 
-    const result = await sm.handleAskUserQuestion(session.id, {
+    const pending = sm.handleAskUserQuestion(session.id, {
       questions: [{
         question: "Should I merge this branch or open a PR?",
         options: [
@@ -1087,21 +1165,17 @@ describe("SessionManager.handleAskUserQuestion()", () => {
       }],
     });
 
-    assert.deepEqual(result, {
-      behavior: "allow",
-      updatedInput: {
-        questions: [{
-          question: "Should I merge this branch or open a PR?",
-          options: [
-            { label: "Merge" },
-            { label: "Open PR" },
-            { label: "Decide later" },
-          ],
-        }],
-        answers: { "Should I merge this branch or open a PR?": "Decide later" },
-      },
-    });
-    assert.equal((sm as any).__dispatchCalls.length, 0);
+    assert.equal((sm as any).__dispatchCalls.length, 1);
+    const [_sessionArg, request] = (sm as any).__dispatchCalls[0];
+    assert.equal(request.label, "ask-user-question");
+    assert.equal(request.buttons[0][0].label, "Merge");
+    assert.equal(request.buttons[0][1].label, "Open PR");
+    assert.equal(request.buttons[0][2].label, "Decide later");
+
+    const pendingQuestion = (sm as any).pendingAskUserQuestions.get(session.id);
+    clearTimeout(pendingQuestion.timeoutHandle);
+    pendingQuestion.reject(new Error("test cleanup"));
+    await assert.rejects(pending, /test cleanup/);
   });
 
   it("still delivers genuine questions to the user with reply buttons", async () => {

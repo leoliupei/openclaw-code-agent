@@ -104,7 +104,7 @@ describe("Session consumeMessages — tool_use message", () => {
     session.kill("user"); // cleanup
   });
 
-  it("suppresses worktree merge-or-pr questions so the session can complete", async () => {
+  it("keeps explicit worktree questions pending for user input", async () => {
     const session = await startSession({
       multiTurn: true,
       permissionMode: "default",
@@ -125,8 +125,10 @@ describe("Session consumeMessages — tool_use message", () => {
     });
     await tick(50);
 
-    assert.equal(session.status, "completed");
+    assert.equal(session.status, "running");
+    assert.equal(session.lifecycle, "awaiting_user_input");
     assert.equal(session.pendingPlanApproval, false);
+    session.kill("user");
   });
 });
 

@@ -4,7 +4,7 @@ import { makeAgentMergeTool } from "./tools/agent-merge";
 import { makeAgentPrTool } from "./tools/agent-pr";
 import { makeAgentOutputTool } from "./tools/agent-output";
 
-/** Namespace prefix used in all button callbackData values. */
+/** Interactive callback namespace registered with the gateway. */
 export const CALLBACK_NAMESPACE = "code-agent";
 
 /**
@@ -20,17 +20,11 @@ interface TelegramCallbackContext {
   };
 }
 
-/**
- * Parse "action:sessionId" payload (everything after the namespace colon).
- * Uses indexOf so session IDs containing colons are handled safely.
- */
-function parsePayload(payload: string): { action: string; sessionId: string } | null {
-  const colonIdx = payload.indexOf(":");
-  if (colonIdx === -1) return null;
-  const action = payload.slice(0, colonIdx).trim();
-  const sessionId = payload.slice(colonIdx + 1).trim();
-  if (!action || !sessionId) return null;
-  return { action, sessionId };
+type InteractiveChannel = "telegram" | "discord";
+
+function parsePayload(payload: string): string | null {
+  const tokenId = payload.trim();
+  return tokenId ? tokenId : null;
 }
 
 /** Extract text from a tool execute result content array. */
@@ -54,16 +48,16 @@ function toolResultText(result: unknown): string {
  *
  * Flow:
  * 1. Check sender authorization.
- * 2. Parse payload → action + sessionId.
+ * 2. Treat payload as an opaque action token.
  * 3. Answer callback (clear buttons / remove spinner) immediately.
  * 4. Execute action programmatically.
  * 5. Reply with result in the same Telegram thread.
  *
  * Alice never sees raw callback_data strings.
  */
-export function createCallbackHandler() {
+export function createCallbackHandler(channel: InteractiveChannel = "telegram") {
   return {
-    channel: "telegram" as const,
+    channel,
     namespace: CALLBACK_NAMESPACE,
     handler: async (ctx: TelegramCallbackContext): Promise<{ handled?: boolean } | void> => {
       // Authorization check
@@ -72,16 +66,13 @@ export function createCallbackHandler() {
         return { handled: true };
       }
 
-      // Parse payload
-      const parsed = parsePayload(ctx.callback.payload);
-      if (!parsed) {
+      const tokenId = parsePayload(ctx.callback.payload);
+      if (!tokenId) {
         await ctx.respond.reply({
-          text: `⚠️ Unrecognized callback payload: "${ctx.callback.payload}". Expected "action:session-id".`,
+          text: `⚠️ Unrecognized callback payload: "${ctx.callback.payload}".`,
         });
         return { handled: true };
       }
-
-      const { action, sessionId } = parsed;
 
       // Guard service initialization
       if (!sessionManager) {
@@ -89,39 +80,39 @@ export function createCallbackHandler() {
         return { handled: true };
       }
 
+      const token = sessionManager.consumeActionToken(tokenId);
+      if (!token) {
+        await ctx.respond.reply({ text: "⚠️ This action is stale or has already been used." });
+        return { handled: true };
+      }
+
+      const sessionId = token.sessionId;
+
       // Answer the callback query immediately: removes spinner and buttons from message.
       await ctx.respond.clearButtons();
 
       // Route action
-      switch (action) {
-        case "merge":
-        case "merge-locally": {
-          // Clear pending worktree decision so cleanup can proceed and reminders stop
-          {
-            const ms = sessionManager.resolve(sessionId);
-            const ps = sessionManager.getPersistedSession(sessionId);
-            const hid = ms?.harnessSessionId ?? ps?.harnessSessionId;
-            if (hid) sessionManager.updatePersistedSession(hid, { pendingWorktreeDecisionSince: undefined, lastWorktreeReminderAt: undefined });
-          }
+      switch (token.kind) {
+        case "worktree-merge": {
           const result = await makeAgentMergeTool().execute("callback", { session: sessionId });
           await ctx.respond.reply({ text: toolResultText(result) });
           break;
         }
 
-        case "snooze": {
+        case "worktree-decide-later": {
           const result = sessionManager.snoozeWorktreeDecision(sessionId);
           await ctx.respond.reply({ text: result.startsWith("Error") ? result : "⏭️ Snoozed 24h" });
           break;
         }
 
-        case "dismiss": {
+        case "worktree-dismiss": {
           const result = await sessionManager.dismissWorktree(sessionId);
           await ctx.respond.reply({ text: result.startsWith("Error") ? result : result });
           break;
         }
 
-        case "pr":
-        case "open-pr": {
+        case "worktree-create-pr":
+        case "worktree-update-pr": {
           // Do NOT pre-clear pendingWorktreeDecisionSince here.
           // For the PR path the worktree directory must stay alive indefinitely so the
           // user can push follow-up commits for PR review.  The worktree directory was
@@ -134,15 +125,14 @@ export function createCallbackHandler() {
           break;
         }
 
-        case "new-pr": {
-          // Same as "pr" / "open-pr": do NOT pre-clear pendingWorktreeDecisionSince.
-          // Keep the worktree alive — agent-pr.ts clears the flag on success only.
-          const result = await makeAgentPrTool().execute("callback", { session: sessionId, force_new: true });
-          await ctx.respond.reply({ text: toolResultText(result) });
+        case "worktree-view-pr": {
+          const persisted = sessionManager.getPersistedSession(sessionId);
+          const url = token.targetUrl ?? persisted?.worktreePrUrl;
+          await ctx.respond.reply({ text: url ? `PR: ${url}` : "⚠️ PR URL is no longer available." });
           break;
         }
 
-        case "approve": {
+        case "plan-approve": {
           const result = await executeRespond(sessionManager, {
             session: sessionId,
             message: "Approved. Go ahead.",
@@ -153,17 +143,19 @@ export function createCallbackHandler() {
           break;
         }
 
-        case "reject": {
-          const result = await executeRespond(sessionManager, {
-            session: sessionId,
-            message: "Plan rejected. Please stop.",
-            userInitiated: true,
-          });
-          await ctx.respond.reply({ text: result.isError ? `⚠️ ${result.text}` : `❌ ${result.text}` });
+        case "plan-reject": {
+          const active = sessionManager.resolve(sessionId);
+          if (active) {
+            active.approvalState = "rejected";
+            sessionManager.kill(active.id, "user");
+            await ctx.respond.reply({ text: `❌ Plan rejected for [${active.name}]. Session stopped.` });
+          } else {
+            await ctx.respond.reply({ text: `❌ Plan rejected.` });
+          }
           break;
         }
 
-        case "revise": {
+        case "plan-request-changes": {
           const reviseSession = sessionManager.resolve(sessionId);
           const revisePersisted = sessionManager.getPersistedSession(sessionId);
           const reviseName = reviseSession?.name ?? revisePersisted?.name ?? sessionId;
@@ -173,23 +165,14 @@ export function createCallbackHandler() {
           break;
         }
 
-        case "reply": {
-          const replySession = sessionManager.resolve(sessionId);
-          const replyPersisted = sessionManager.getPersistedSession(sessionId);
-          const replyName = replySession?.name ?? replyPersisted?.name ?? sessionId;
-          await ctx.respond.reply({
-            text: `💬 Type your reply for [${replyName}] and I'll forward it to the agent.`,
-          });
-          break;
-        }
-
-        case "retry": {
+        case "session-restart":
+        case "session-resume": {
           const result = await executeRespond(sessionManager, {
             session: sessionId,
-            message: "Retry.",
+            message: "Continue where you left off.",
             userInitiated: true,
           });
-          await ctx.respond.reply({ text: result.isError ? `⚠️ ${result.text}` : `🔄 ${result.text}` });
+          await ctx.respond.reply({ text: result.isError ? `⚠️ ${result.text}` : `▶️ ${result.text}` });
           break;
         }
 
@@ -200,26 +183,18 @@ export function createCallbackHandler() {
         }
 
         case "question-answer": {
-          // sessionId here is actually "<sessionId>:<optionIndex>" due to parsePayload splitting at first colon
-          const lastColonIdx = sessionId.lastIndexOf(":");
-          if (lastColonIdx === -1) {
-            await ctx.respond.reply({ text: `⚠️ Malformed question-answer payload: "${sessionId}"` });
+          if (token.optionIndex == null) {
+            await ctx.respond.reply({ text: `⚠️ Invalid question-answer action.` });
             break;
           }
-          const realSessionId = sessionId.slice(0, lastColonIdx);
-          const optionIndex = parseInt(sessionId.slice(lastColonIdx + 1), 10);
-          if (isNaN(optionIndex)) {
-            await ctx.respond.reply({ text: `⚠️ Invalid option index in question-answer payload.` });
-            break;
-          }
-          sessionManager.resolveAskUserQuestion(realSessionId, optionIndex);
+          sessionManager.resolveAskUserQuestion(sessionId, token.optionIndex);
           await ctx.respond.reply({ text: `✅ Answer submitted.` });
           break;
         }
 
         default: {
           await ctx.respond.reply({
-            text: `⚠️ Unknown callback action: "${action}". Supported: merge, pr, open-pr, new-pr, snooze, dismiss, approve, reject, revise, reply, retry, view-output, question-answer.`,
+            text: `⚠️ Unknown callback action.`,
           });
           break;
         }

@@ -46,28 +46,18 @@ type NotificationRoute = {
 };
 
 export class WakeDispatcher {
+  private static processHooksInstalled = false;
   private pendingRetryTimers: Map<string, Set<ReturnType<typeof setTimeout>>> = new Map();
 
   constructor() {
-    process.on("beforeExit", () => {
-      if (this.pendingRetryTimers.size > 0) {
-        console.warn(
-          `[WakeDispatcher] beforeExit: ${this.pendingRetryTimers.size} pending retry timer(s) ` +
-          `still active — event loop should stay alive, investigate if process exits prematurely.`,
-        );
-        // DO NOT cancel — cancelling abandons in-flight notification retries
-      }
-    });
-
-    const gracefulShutdown = (signal: string): void => {
-      if (this.pendingRetryTimers.size === 0) return;
-      console.warn(
-        `[WakeDispatcher] ${signal}: ${this.pendingRetryTimers.size} pending retry timer(s) ` +
-        `will be abandoned on hard exit.`,
-      );
-    };
-    process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
-    process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+    if (!WakeDispatcher.processHooksInstalled) {
+      WakeDispatcher.processHooksInstalled = true;
+      process.on("beforeExit", () => {
+        // Hooks are process-global; individual dispatcher instances manage their own timers.
+      });
+      process.once("SIGTERM", () => undefined);
+      process.once("SIGINT", () => undefined);
+    }
   }
 
   /** Cancel all scheduled retry timers across all sessions. */
@@ -99,6 +89,15 @@ export class WakeDispatcher {
   }
 
   private parseNotificationRoute(session: Session): NotificationRoute | undefined {
+    if (session.route?.provider && session.route?.target) {
+      return {
+        channel: session.route.provider,
+        target: session.route.target,
+        accountId: session.route.accountId,
+        threadId: session.route.threadId ?? this.getOriginThreadId(session),
+      };
+    }
+
     const originChannel = session.originChannel?.trim();
     const originThreadId = this.getOriginThreadId(session);
     if (originChannel) {

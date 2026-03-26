@@ -157,16 +157,16 @@ describe("formatSessionListing", () => {
 
   it("shows phase for running session in plan mode", () => {
     const result = formatSessionListing(
-      makeSession({ status: "running", phase: "planning" }),
+      makeSession({ status: "running", phase: "active" }),
     );
-    assert.ok(result.includes("Phase: planning"), "should show planning phase");
+    assert.ok(result.includes("Phase: active"), "should show active phase");
   });
 
   it("shows phase for session awaiting plan approval", () => {
     const result = formatSessionListing(
-      makeSession({ status: "running", phase: "awaiting-plan-approval" }),
+      makeSession({ status: "running", phase: "awaiting_plan_decision" }),
     );
-    assert.ok(result.includes("awaiting-plan-approval"), "should show awaiting phase");
+    assert.ok(result.includes("awaiting_plan_decision"), "should show awaiting phase");
   });
 
   it("does not show phase for completed session", () => {

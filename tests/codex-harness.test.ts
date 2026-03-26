@@ -159,8 +159,8 @@ describe("CodexHarness static properties", () => {
     assert.ok(h.supportedPermissionModes.includes("bypassPermissions"));
   });
 
-  it("has synthetic tool names", () => {
-    assert.ok(h.questionToolNames.includes("codex:waiting-for-user"));
+  it("does not expose synthetic question tool names", () => {
+    assert.deepEqual(h.questionToolNames, []);
     assert.deepEqual(h.planApprovalToolNames, []);
   });
 });
@@ -309,7 +309,7 @@ describe("CodexHarness SDK mapping", () => {
     assert.equal(msgs.some((m) => m.type === "tool_use"), false);
   });
 
-  it("emits synthetic waiting-for-user tool event when tail text matches heuristic", async () => {
+  it("does not emit synthetic waiting-for-user tool events from assistant text", async () => {
     const codex = new MockCodex([
       {
         events: [
@@ -325,8 +325,7 @@ describe("CodexHarness SDK mapping", () => {
     const msgs = await collectMessages(session);
 
     const toolUse = msgs.find((m) => m.type === "tool_use") as any;
-    assert.ok(toolUse, "expected synthetic tool_use");
-    assert.equal(toolUse.name, "codex:waiting-for-user");
+    assert.equal(toolUse, undefined);
   });
 
   it("emits activity heartbeat while a turn is running", async () => {

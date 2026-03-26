@@ -52,7 +52,7 @@ interface OpenClawToolApi {
 
 interface OpenClawInteractiveApi {
   registerInteractiveHandler(registration: {
-    channel: "telegram";
+    channel: "telegram" | "discord";
     namespace: string;
     handler: (ctx: unknown) => Promise<{ handled?: boolean } | void> | ({ handled?: boolean } | void);
   }): void;
@@ -75,9 +75,14 @@ interface OpenClawPluginApi extends OpenClawCommandApi, OpenClawServiceApi, Open
  *    root found in persisted session workdirs — so cleanup works without any explicit config.
  */
 function cleanupOrphanedWorktrees(sm: SessionManager): void {
-  const cleanupAgeHours = parseInt(process.env.OPENCLAW_WORKTREE_CLEANUP_AGE_HOURS ?? "1", 10) || 1;
+  const cleanupAgeHours = parseInt(process.env.OPENCLAW_WORKTREE_CLEANUP_AGE_HOURS ?? "168", 10) || 168;
   const cleanupAgeMs = cleanupAgeHours * 60 * 60 * 1000;
   const cutoffTime = Date.now() - cleanupAgeMs;
+  const managedWorktrees = new Set(
+    sm.listPersistedSessions()
+      .map((session) => session.worktreePath)
+      .filter((path): path is string => typeof path === "string" && path.length > 0),
+  );
 
   // Build the set of base dirs to scan
   const dirsToScan = new Set<string>();
@@ -115,8 +120,9 @@ function cleanupOrphanedWorktrees(sm: SessionManager): void {
           const stats = statSync(fullPath);
           if (!stats.isDirectory()) continue;
           if (stats.mtimeMs > cutoffTime) continue;
+          if (managedWorktrees.has(fullPath)) continue;
 
-          // Orphaned worktrees are already detached — just rmSync directly
+          // Only delete unmanaged old worktrees.
           rmSync(fullPath, { recursive: true, force: true });
           removed++;
         } catch (err) {
@@ -151,8 +157,9 @@ export function register(api: OpenClawPluginApi): void {
   api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeCleanupTool(ctx), { optional: false });
   api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeStatusTool(ctx), { optional: false });
 
-  // Interactive handlers (Telegram button callbacks)
-  api.registerInteractiveHandler(createCallbackHandler());
+  // Interactive handlers (shared action-token callbacks across chat transports)
+  api.registerInteractiveHandler(createCallbackHandler("telegram"));
+  api.registerInteractiveHandler(createCallbackHandler("discord"));
 
   // Commands
   registerAgentCommand(api);

@@ -246,47 +246,49 @@ describe("Session.phase", () => {
     assert.equal(session.phase, "starting");
   });
 
-  it("returns 'planning' when running in plan mode without pending approval", () => {
+  it("returns 'active' when running in plan mode without pending approval", () => {
     session.transition("running");
-    assert.equal(session.phase, "planning");
+    assert.equal(session.phase, "active");
   });
 
-  it("returns 'awaiting-plan-approval' when pendingPlanApproval is true", () => {
+  it("returns 'awaiting_plan_decision' when pendingPlanApproval is true", () => {
     session.transition("running");
     session.pendingPlanApproval = true;
-    assert.equal(session.phase, "awaiting-plan-approval");
+    session.lifecycle = "awaiting_plan_decision";
+    assert.equal(session.phase, "awaiting_plan_decision");
   });
 
-  it("returns 'implementing' when permission mode is bypassPermissions", () => {
+  it("returns 'active' when permission mode is bypassPermissions", () => {
     session.transition("running");
     session.currentPermissionMode = "bypassPermissions";
-    assert.equal(session.phase, "implementing");
+    assert.equal(session.phase, "active");
   });
 
-  it("returns 'implementing' when permission mode is bypassPermissions", () => {
+  it("returns 'active' when permission mode is bypassPermissions", () => {
     session.transition("running");
     session.currentPermissionMode = "bypassPermissions";
-    assert.equal(session.phase, "implementing");
+    assert.equal(session.phase, "active");
   });
 
-  it("returns 'implementing' when permission mode is default", () => {
+  it("returns 'active' when permission mode is default", () => {
     session.transition("running");
     session.currentPermissionMode = "default";
-    assert.equal(session.phase, "implementing");
+    assert.equal(session.phase, "active");
   });
 
-  it("returns status name for terminal states", () => {
+  it("returns 'terminal' for terminal states", () => {
     session.transition("running");
     session.transition("completed");
-    assert.equal(session.phase, "completed");
+    assert.equal(session.phase, "terminal");
   });
 
-  it("awaiting-plan-approval takes precedence over plan mode", () => {
+  it("awaiting_plan_decision takes precedence over plan mode", () => {
     session.transition("running");
     session.pendingPlanApproval = true;
+    session.lifecycle = "awaiting_plan_decision";
     // currentPermissionMode is still "plan" from BASE_CONFIG
     assert.equal(session.currentPermissionMode, "plan");
-    assert.equal(session.phase, "awaiting-plan-approval");
+    assert.equal(session.phase, "awaiting_plan_decision");
   });
 
   // Fix B: Codex sessions must preserve plan mode so pendingPlanApproval is set
@@ -297,16 +299,17 @@ describe("Session.phase", () => {
 
     assert.equal(codexSession.currentPermissionMode, "plan",
       "Codex plan-mode sessions must not downgrade currentPermissionMode to 'default'");
-    assert.equal(codexSession.phase, "planning",
-      "Codex plan-mode sessions should show phase='planning' while the first turn is in progress");
+    assert.equal(codexSession.phase, "active",
+      "Codex plan-mode sessions should stay in an explicit active lifecycle while the first turn is in progress");
   });
 
-  it("Codex session in plan mode shows awaiting-plan-approval after pendingPlanApproval is set (Fix B)", () => {
+  it("Codex session in plan mode shows awaiting_plan_decision after pendingPlanApproval is set", () => {
     const codexSession = new Session({ ...BASE_CONFIG, harness: "codex" }, "codex-test");
     codexSession.transition("running");
     codexSession.pendingPlanApproval = true;
+    codexSession.lifecycle = "awaiting_plan_decision";
 
-    assert.equal(codexSession.phase, "awaiting-plan-approval",
-      "Codex plan-mode sessions must show awaiting-plan-approval once pendingPlanApproval is set");
+    assert.equal(codexSession.phase, "awaiting_plan_decision",
+      "Codex plan-mode sessions must show awaiting_plan_decision once pendingPlanApproval is set");
   });
 });

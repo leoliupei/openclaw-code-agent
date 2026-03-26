@@ -124,6 +124,7 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
         worktreeBaseBranch: "main",
         pendingPlanApproval: false,
       };
+      (sm as any).sessions.set(session.id, session);
 
       const result = await (sm as any).handleWorktreeStrategy(session);
 
@@ -135,10 +136,12 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
       assert.equal(request.notifyUser, "always");
       assert.match(request.userMessage, /Delegating merge decision/);
       assert.match(request.userMessage, /Commits: 1 \| Files: 1/);
-      assert.equal(request.buttons[0][0].label, "✅ Merge");
-      assert.equal(request.buttons[0][1].label, "📬 Open PR");
-      assert.equal(request.buttons[0][2].label, "⏭️ Decide later");
-      assert.equal(request.buttons[0][3].label, "🗑️ Dismiss (deletes branch)");
+      assert.deepEqual(request.buttons[0].map((button: any) => button.label), [
+        "Merge locally",
+        "Create PR",
+        "Decide later",
+        "Dismiss",
+      ]);
       assert.match(request.wakeMessage, /DELEGATED WORKTREE DECISION/);
       const persisted = (sm as any).store.persisted.get("h-delegate");
       assert.match(persisted.pendingWorktreeDecisionSince, /^\d{4}-\d{2}-\d{2}T/);

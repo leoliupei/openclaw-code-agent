@@ -3,11 +3,19 @@ import { existsSync } from "fs";
 import { Session } from "./session";
 import { pluginConfig, getDefaultHarnessName } from "./config";
 import { formatDuration, generateSessionName, lastCompleteLines, truncateText } from "./format";
-import type { SessionConfig, SessionStatus, SessionMetrics, PersistedSessionInfo, KillReason, PlanApprovalMode } from "./types";
+import type {
+  SessionConfig,
+  SessionStatus,
+  SessionMetrics,
+  PersistedSessionInfo,
+  KillReason,
+  PlanApprovalMode,
+  SessionActionKind,
+  SessionActionToken,
+} from "./types";
 import { SessionStore } from "./session-store";
 import { SessionMetricsRecorder } from "./session-metrics";
 import { WakeDispatcher, type SessionNotificationRequest } from "./wake-dispatcher";
-import { looksLikeWaitingForUser } from "./waiting-detector";
 import {
   isGitRepo,
   createWorktree,
@@ -22,6 +30,7 @@ import {
   detectDefaultBranch,
   checkDirtyTracked,
   formatWorktreeOutcomeLine,
+  isGitHubCLIAvailable,
 } from "./worktree";
 
 
@@ -73,6 +82,7 @@ export class SessionManager {
   private sessions: Map<string, Session> = new Map();
   maxSessions: number;
   maxPersistedSessions: number;
+  private lastDailyMaintenanceAt = 0;
 
   private lastWaitingEventTimestamps: Map<string, number> = new Map();
   private lastTurnCompleteMarkers: Map<string, string> = new Map();
@@ -184,27 +194,17 @@ export class SessionManager {
     // Strategy: off (or undefined) = no worktree, any other value = create worktree
     // Skip entirely for resume — the resume block above already restored the correct workdir.
     let actualWorkdir = config.workdir;
-    let worktreeCreationFailed = false;
-    let worktreeSkippedNotGitRemote = false; // Fix 1-A
-    // F2: Enforce admin defaultWorktreeStrategy — agents cannot override it unless it is
-    // "delegate" or unset.  Resumed sessions inherit their strategy at creation time and are
-    // exempt from this enforcement (their worktreeStrategy was already baked in above).
+    // Explicit per-launch strategy wins. Plugin config only supplies a default.
     const isResumedSession = !!(config.resumeSessionId ?? config.resumeWorktreeFrom);
-    const strategy = (!isResumedSession &&
-      pluginConfig.defaultWorktreeStrategy &&
-      pluginConfig.defaultWorktreeStrategy !== "delegate")
-      ? pluginConfig.defaultWorktreeStrategy   // Admin pinned a non-delegate strategy — override
-      : (config.worktreeStrategy ?? pluginConfig.defaultWorktreeStrategy); // delegate/unset — respect per-launch
-    // Bake effective strategy back into config so Session and handleWorktreeStrategy see it
-    if (strategy && !config.worktreeStrategy) config.worktreeStrategy = strategy;
+    const strategy = config.worktreeStrategy ?? pluginConfig.defaultWorktreeStrategy;
+    if (strategy) config.worktreeStrategy = strategy;
     // Bug 3 fix: also gate on !worktreePath — if we already inherited a worktree from the
     // persisted session (via resumeWorktreeFrom), don't attempt a new worktree creation.
     const shouldWorktree = !config.resumeSessionId && !worktreePath && strategy && strategy !== "off";
     if (shouldWorktree && isGitRepo(config.workdir)) {
       // A3: Check space before creating worktree
       if (!hasEnoughWorktreeSpace()) {
-        console.warn(`[SessionManager] Insufficient space for worktree (< 100MB), skipping worktree creation`);
-        worktreeCreationFailed = true; // Fix 2-B: surface disk-space skip as a user-visible warning
+        throw new Error(`Cannot launch session "${name}": insufficient space for worktree creation.`);
       } else {
         try {
           worktreePath = createWorktree(config.workdir, name);
@@ -212,14 +212,11 @@ export class SessionManager {
           worktreeBranchName = getBranchName(worktreePath); // Fix 2-B: cache branch name immediately
           console.log(`[SessionManager] Created worktree at ${worktreePath}`);
         } catch (err) {
-          worktreeCreationFailed = true;
-          console.warn(`[SessionManager] Failed to create worktree: ${err instanceof Error ? err.message : String(err)}, using original workdir`);
+          throw new Error(`Cannot launch session "${name}": worktree creation failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
     } else if (shouldWorktree) {
-      // Fix 1-A: workdir is not a git repo — skip with dedicated notification
-      worktreeSkippedNotGitRemote = true;
-      console.info(`[SessionManager] Worktree creation skipped for "${name}" — workdir is not a git repo`);
+      throw new Error(`Cannot launch session "${name}": worktree strategy "${strategy}" requires a git worktree, but "${config.workdir}" is not a git repository.`);
     }
 
     // Fix 1-B: Inject worktree-aware system prompt so the agent commits to its branch
@@ -266,6 +263,7 @@ export class SessionManager {
       session.worktreePath = worktreePath;
       session.originalWorkdir = config.workdir;
       session.worktreeBranch = worktreeBranchName; // Fix 2-B: store cached branch name on session
+      session.worktreeState = "provisioned";
     }
     if (config.worktreePrTargetRepo) {
       session.worktreePrTargetRepo = config.worktreePrTargetRepo;
@@ -300,23 +298,6 @@ export class SessionManager {
         : session.workdir;
       const launchText = `🚀 [${session.name}] Launched | ${workdirLabel} | ${session.model ?? "default"}`;
       this.notifySession(session, launchText, "launch");
-    }
-
-    // F2: Send warning notification if worktree creation was requested but failed
-    if (worktreeCreationFailed) {
-      const warningText = `⚠️ [${session.name}] Worktree creation failed — session running in original workdir`;
-      this.wakeDispatcher.dispatchSessionNotification(session, {
-        label: "worktree-creation-failed",
-        userMessage: warningText,
-      });
-    }
-
-    // Fix 1-A: Notify when worktree was skipped because workdir is not a git repo with a remote
-    if (worktreeSkippedNotGitRemote) {
-      this.wakeDispatcher.dispatchSessionNotification(session, {
-        label: "worktree-skipped-not-git-remote",
-        userMessage: `⚠️ [${session.name}] Worktree creation skipped — workdir is not a git repo with a remote. Running in original workdir.`,
-      });
     }
 
     return session;
@@ -371,62 +352,66 @@ export class SessionManager {
   }
 
   private shouldRunWorktreeStrategy(session: Session): boolean {
-    const phase = session.phase;
-    if (phase === "planning" || phase === "awaiting-plan-approval") return false;
+    const phase = session.lifecycle;
+    if (phase === "starting" || phase === "awaiting_plan_decision" || phase === "awaiting_user_input") return false;
     if (session.pendingPlanApproval) return false;
     return true;
   }
 
-  private isWorktreeDecisionQuestionText(text: string | undefined): boolean {
-    if (!text) return false;
-    const normalized = text.toLowerCase();
-    const mentionsMerge = /\bmerge\b/.test(normalized);
-    const mentionsPr = /\b(pr|pull request)\b/.test(normalized);
-    const mentionsDecision = /\b(decide|decision|later|dismiss)\b/.test(normalized);
-    return mentionsMerge && (mentionsPr || mentionsDecision);
+  private createActionToken(
+    sessionId: string,
+    kind: SessionActionKind,
+    options: Partial<Omit<SessionActionToken, "id" | "sessionId" | "kind" | "createdAt">> = {},
+  ): SessionActionToken {
+    return this.store.createActionToken(sessionId, kind, {
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ...options,
+    });
   }
 
-  private extractAskUserQuestionText(input: AskUserQuestionInput): string | undefined {
-    const firstQuestion = input.questions?.[0];
-    return typeof firstQuestion?.question === "string" ? firstQuestion.question : undefined;
+  private makeActionButton(
+    sessionId: string,
+    kind: SessionActionKind,
+    label: string,
+    options: Partial<Omit<SessionActionToken, "id" | "sessionId" | "kind" | "createdAt">> = {},
+  ): NotificationButton {
+    const token = this.createActionToken(sessionId, kind, { label, ...options });
+    return { label, callbackData: token.id };
   }
 
-  private shouldBypassWorktreeDecisionQuestion(session: Session, input: AskUserQuestionInput): boolean {
-    if (
-      !session.worktreeStrategy ||
-      session.worktreeStrategy === "off" ||
-      session.worktreeStrategy === "manual" ||
-      session.currentPermissionMode === "plan" ||
-      session.pendingPlanApproval
-    ) {
-      return false;
-    }
-    return this.isWorktreeDecisionQuestionText(this.extractAskUserQuestionText(input));
-  }
-
-  private getBypassWorktreeDecisionAnswer(question: AskUserQuestionInput["questions"][number]): string {
-    const decideLaterOption = (question.options ?? []).find((option) => /\b(decide later|later|not now|snooze)\b/i.test(option.label));
-    return decideLaterOption?.label ?? "Decide later";
+  consumeActionToken(tokenId: string): SessionActionToken | undefined {
+    return this.store.consumeActionToken(tokenId);
   }
 
   private getWorktreeDecisionButtons(sessionId: string): NotificationButton[][] {
-    return [[
-      { label: "✅ Merge", callbackData: `code-agent:merge:${sessionId}` },
-      { label: "📬 Open PR", callbackData: `code-agent:pr:${sessionId}` },
-      { label: "⏭️ Decide later", callbackData: `code-agent:snooze:${sessionId}` },
-      { label: "🗑️ Dismiss (deletes branch)", callbackData: `code-agent:dismiss:${sessionId}` },
-    ]];
+    const session = this.resolve(sessionId) ?? this.getPersistedSession(sessionId);
+    if (!session) return [];
+
+    const buttons: NotificationButton[] = [];
+    buttons.push(this.makeActionButton(sessionId, "worktree-merge", "Merge locally"));
+    if (isGitHubCLIAvailable()) {
+      if (session.worktreePrUrl) {
+        buttons.push(this.makeActionButton(sessionId, "worktree-view-pr", "View PR", { targetUrl: session.worktreePrUrl }));
+        buttons.push(this.makeActionButton(sessionId, "worktree-update-pr", "Update PR"));
+      } else {
+        buttons.push(this.makeActionButton(sessionId, "worktree-create-pr", "Create PR"));
+      }
+    }
+    buttons.push(this.makeActionButton(sessionId, "worktree-decide-later", "Decide later"));
+    buttons.push(this.makeActionButton(sessionId, "worktree-dismiss", "Dismiss"));
+    return [buttons];
   }
 
   private getWorktreeCompletionState(
     repoDir: string,
+    worktreePath: string,
     branchName: string,
     baseBranch: string,
   ): "no-change" | "dirty-uncommitted" | "base-advanced" | "has-commits" {
     if (!hasCommitsAhead(repoDir, branchName, baseBranch)) {
       const baseBranchAdvanced = hasCommitsAhead(repoDir, baseBranch, branchName);
       if (baseBranchAdvanced) return "base-advanced";
-      if (checkDirtyTracked(repoDir)) return "dirty-uncommitted";
+      if (checkDirtyTracked(worktreePath)) return "dirty-uncommitted";
       return "no-change";
     }
     return "has-commits";
@@ -473,6 +458,10 @@ export class SessionManager {
         worktreeDisposition: "dismissed",
         worktreeDismissedAt: new Date().toISOString(),
         pendingWorktreeDecisionSince: undefined,
+        worktreeState: "dismissed",
+        lifecycle: "terminal",
+        worktreePath: undefined,
+        worktreeBranch: undefined,
       } as Partial<PersistedSessionInfo>);
     }
 
@@ -561,7 +550,7 @@ export class SessionManager {
 
     const baseBranch = session.worktreeBaseBranch ?? detectDefaultBranch(repoDir);
 
-    const completionState = this.getWorktreeCompletionState(repoDir, branchName, baseBranch);
+    const completionState = this.getWorktreeCompletionState(repoDir, worktreePath, branchName, baseBranch);
 
     if (completionState === "no-change") {
       const removed = removeWorktree(repoDir, worktreePath);
@@ -571,6 +560,7 @@ export class SessionManager {
           this.updatePersistedSession(session.harnessSessionId, {
             worktreePath: undefined,
             worktreeDisposition: "no-change-cleaned",
+            worktreeState: "none",
           });
         }
         this.dispatchSessionNotification(session, {
@@ -660,6 +650,8 @@ export class SessionManager {
       if (session.harnessSessionId) {
         this.updatePersistedSession(session.harnessSessionId, {
           pendingWorktreeDecisionSince: new Date().toISOString(),
+          lifecycle: "awaiting_worktree_decision",
+          worktreeState: "pending_decision",
         });
       }
       return { notificationSent: true, worktreeRemoved: false };
@@ -733,6 +725,8 @@ export class SessionManager {
       if (session.harnessSessionId) {
         this.updatePersistedSession(session.harnessSessionId, {
           pendingWorktreeDecisionSince: new Date().toISOString(),
+          lifecycle: "awaiting_worktree_decision",
+          worktreeState: "pending_decision",
         });
       }
       return { notificationSent: true, worktreeRemoved: false };
@@ -751,7 +745,7 @@ export class SessionManager {
           if (this.isAlreadyMerged(session.harnessSessionId)) return;
 
           // Attempt merge (no push — auto-merge is local-only)
-          const mergeResult = mergeBranch(repoDir, branchName, baseBranch);
+          const mergeResult = mergeBranch(repoDir, branchName, baseBranch, "merge", worktreePath);
 
           if (mergeResult.success) {
             // Delete branch
@@ -762,6 +756,10 @@ export class SessionManager {
               this.updatePersistedSession(session.harnessSessionId, {
                 worktreeMerged: true,
                 worktreeMergedAt: new Date().toISOString(),
+                lifecycle: "terminal",
+                worktreeState: "merged",
+                pendingWorktreeDecisionSince: undefined,
+                lastWorktreeReminderAt: undefined,
               });
             }
 
@@ -807,7 +805,7 @@ export class SessionManager {
               this.wakeDispatcher.dispatchSessionNotification(session, {
                 label: "worktree-merge-conflict",
                 userMessage: `⚠️ [${session.name}] Merge conflicts in ${mergeResult.conflictFiles.length} file(s) — spawned conflict resolver session`,
-                buttons: [[{ label: "🔀 Open PR instead", callbackData: `code-agent:open-pr:${session.id}` }]],
+                buttons: [[this.makeActionButton(session.id, "worktree-create-pr", "Open PR instead")]],
               });
             } catch (err) {
               this.wakeDispatcher.dispatchSessionNotification(session, {
@@ -837,45 +835,24 @@ export class SessionManager {
     }
 
     if (strategy === "auto-pr") {
-      // auto-pr is deprecated — route to ask-style confirmation (4-button decision UX)
-      console.warn(`[SessionManager] auto-pr strategy is deprecated; treating as 'ask' (user confirmation required)`);
-
-      const autoPrCommitLines = diffSummary.commitMessages
-        .slice(0, 5)
-        .map((c) => `• ${c.hash} ${c.message} (${c.author})`);
-      const autoPrMoreNote = diffSummary.commits > 5 ? `...and ${diffSummary.commits - 5} more` : "";
-
-      const autoPrBranchLine = session.worktreePrTargetRepo
-        ? `Branch: \`${branchName}\` → \`${baseBranch}\` | PR target: ${session.worktreePrTargetRepo}`
-        : `Branch: \`${branchName}\` → \`${baseBranch}\``;
-
-      const autoPrMessage = [
-        `🔀 Worktree decision required for session \`${session.name}\``,
-        `(Note: \`auto-pr\` strategy is deprecated and now requires explicit confirmation.)`,
-        ``,
-        autoPrBranchLine,
-        `Commits: ${diffSummary.commits} | Files: ${diffSummary.filesChanged} | +${diffSummary.insertions} / -${diffSummary.deletions}`,
-        ``,
-        ...autoPrCommitLines,
-        ...(autoPrMoreNote ? [autoPrMoreNote] : []),
-        ``,
-        `⚠️ Dismiss will permanently delete branch \`${branchName}\` and all local changes. This cannot be undone.`,
-      ].join("\n");
-
-      this.wakeDispatcher.dispatchSessionNotification(session, {
-        label: "worktree-merge-ask",
-        userMessage: autoPrMessage,
-        notifyUser: "always",
-        buttons: this.getWorktreeDecisionButtons(session.id),
-        wakeMessageOnNotifySuccess:
-          `Worktree strategy buttons delivered to user. Wait for their button callback — do NOT act on this worktree yourself.`,
-        wakeMessageOnNotifyFailed: autoPrMessage,
-      });
-
+      const { makeAgentPrTool } = await import("./tools/agent-pr");
       if (session.harnessSessionId) {
         this.updatePersistedSession(session.harnessSessionId, {
-          pendingWorktreeDecisionSince: new Date().toISOString(),
+          lifecycle: "terminal",
+          worktreeState: "pr_in_progress",
         });
+      }
+      const result = await makeAgentPrTool().execute("auto-pr", { session: session.id, base_branch: baseBranch }) as {
+        meta?: { success?: boolean };
+      };
+      if (result?.meta?.success !== true) {
+        if (session.harnessSessionId) {
+          this.updatePersistedSession(session.harnessSessionId, {
+            pendingWorktreeDecisionSince: new Date().toISOString(),
+            lifecycle: "awaiting_worktree_decision",
+            worktreeState: "pending_decision",
+          });
+        }
       }
       return { notificationSent: true, worktreeRemoved: false };
     }
@@ -992,7 +969,15 @@ export class SessionManager {
     const duration = formatDuration(session.duration);
 
     if (session.killReason === "idle-timeout") {
-      this.notifySession(session, `💤 [${session.name}] Idle timeout | ${costStr} | ${duration}`);
+      this.dispatchSessionNotification(session, {
+        label: "suspended",
+        userMessage: `💤 [${session.name}] Suspended after idle timeout | ${costStr} | ${duration}`,
+        notifyUser: "always",
+        buttons: [[
+          this.makeActionButton(session.id, "session-resume", "Resume"),
+          this.makeActionButton(session.id, "view-output", "View output"),
+        ]],
+      });
       this.wakeDispatcher.clearRetryTimersForSession(session.id);
       return;
     }
@@ -1147,8 +1132,10 @@ export class SessionManager {
     ].join("\n");
 
     const failedButtons: Array<Array<{ label: string; callbackData: string }>> = [[
-      { label: "🔄 Retry", callbackData: `code-agent:retry:${session.id}` },
-      { label: "📋 View output", callbackData: `code-agent:view-output:${session.id}` },
+      ...(session.isExplicitlyResumable
+        ? [this.makeActionButton(session.id, "session-resume", "Resume")]
+        : []),
+      this.makeActionButton(session.id, "view-output", "View output"),
     ]];
 
     this.dispatchSessionNotification(session, {
@@ -1180,9 +1167,7 @@ export class SessionManager {
     let eventText: string;
     if (isPlanApproval) {
       const _planApprovalMode = planApprovalMode ?? "delegate";
-      const permissionModeLine = session.planApprovalContext === "soft-plan"
-        ? `Permission mode: bypassPermissions (soft planning fallback) — approval resumes implementation in the same session`
-        : `Permission mode: plan → will switch to bypassPermissions on approval`;
+      const permissionModeLine = `Permission mode: plan → will switch to bypassPermissions on approval`;
       if (_planApprovalMode === "delegate") {
         eventText = [
           `[DELEGATED PLAN APPROVAL] Coding agent session has finished its plan and is requesting approval to implement.`,
@@ -1273,9 +1258,9 @@ export class SessionManager {
     const waitingButtons: Array<Array<{ label: string; callbackData: string }>> | undefined =
       isPlanApproval && planApprovalMode === "ask"
         ? [[
-            { label: "✅ Approve", callbackData: `code-agent:approve:${session.id}` },
-            { label: "❌ Reject", callbackData: `code-agent:reject:${session.id}` },
-            { label: "✏️ Revise", callbackData: `code-agent:revise:${session.id}` },
+            this.makeActionButton(session.id, "plan-approve", "Approve"),
+            this.makeActionButton(session.id, "plan-request-changes", "Request changes"),
+            this.makeActionButton(session.id, "plan-reject", "Reject"),
           ]]
         : undefined; // omit standalone Reply buttons; direct replies already work without a callback
 
@@ -1323,8 +1308,8 @@ export class SessionManager {
       return;
     }
 
-    // Non-question turns still emit a lightweight turn-complete wake. We keep
-    // a heuristic waiting hint in that payload as a fallback.
+    // Non-question turns still emit a lightweight turn-complete wake so the
+    // orchestrator can evaluate the next step explicitly.
     if (!this.shouldEmitTurnCompleteWake(session)) return;
     this.triggerTurnCompleteEventWithSignal(session);
   }
@@ -1357,21 +1342,15 @@ export class SessionManager {
       `(turns=${session.result?.num_turns ?? 0}, strategy=${session.worktreeStrategy ?? "none"})`,
     );
     const preview = this.getOutputPreview(session);
-    // Heuristic fallback only: explicit waiting turns should already route via
-    // `triggerWaitingForInputEvent`. This hint helps catch plain-text asks
-    // without introducing high false-positive wake churn.
-    const waitingForInput = looksLikeWaitingForUser(preview);
     const costStr = `$${(session.costUsd ?? 0).toFixed(2)}`;
-    const waitingText = waitingForInput ? "yes" : "no";
-    const telegramText = `⏸️ [${session.name}] Paused after turn | Auto-resumable | ${costStr} | Waiting input: ${waitingText}`;
+    const telegramText = `⏸️ [${session.name}] Turn completed | ${costStr}`;
 
     const eventText = [
       `Coding agent session turn ended.`,
       `Name: ${session.name}`,
       `ID: ${session.id}`,
       `Status: ${session.status}`,
-      ``,
-      `Looks like waiting for user input: ${waitingText}`,
+      `Lifecycle: ${session.lifecycle}`,
       ``,
       `Last output (~20 lines):`,
       preview,
@@ -1505,8 +1484,58 @@ export class SessionManager {
     const existing = this.store.getPersistedSession(ref);
     if (!existing) return false;
     Object.assign(existing, patch);
+    const active = this.findActiveSessionForRef(ref, existing);
+    if (active) {
+      this.applyPatchToActiveSession(active, patch);
+    }
     this.store.saveIndex();
     return true;
+  }
+
+  private findActiveSessionForRef(ref: string, existing?: PersistedSessionInfo): Session | undefined {
+    const byResolve = this.resolve(ref);
+    if (byResolve) return byResolve;
+
+    for (const session of this.sessions.values()) {
+      if (session.harnessSessionId === ref) return session;
+      if (existing?.sessionId && session.id === existing.sessionId) return session;
+      if (existing?.harnessSessionId && session.harnessSessionId === existing.harnessSessionId) return session;
+      if (existing?.name && session.name === existing.name) return session;
+    }
+
+    return undefined;
+  }
+
+  private applyPatchToActiveSession(session: Session, patch: Partial<PersistedSessionInfo>): void {
+    if (typeof (session as Session & { applyControlPatch?: unknown }).applyControlPatch === "function") {
+      session.applyControlPatch({
+        lifecycle: patch.lifecycle,
+        approvalState: patch.approvalState,
+        worktreeState: patch.worktreeState,
+        runtimeState: patch.runtimeState,
+        deliveryState: patch.deliveryState,
+        pendingPlanApproval: patch.pendingPlanApproval,
+        planApprovalContext: patch.planApprovalContext,
+        pendingWorktreeDecisionSince: patch.pendingWorktreeDecisionSince,
+      });
+    } else {
+      if (patch.lifecycle !== undefined) session.lifecycle = patch.lifecycle;
+      if (patch.approvalState !== undefined) session.approvalState = patch.approvalState;
+      if (patch.worktreeState !== undefined) session.worktreeState = patch.worktreeState;
+      if (patch.runtimeState !== undefined) session.runtimeState = patch.runtimeState;
+      if (patch.deliveryState !== undefined) session.deliveryState = patch.deliveryState;
+      if (patch.pendingPlanApproval !== undefined) session.pendingPlanApproval = patch.pendingPlanApproval;
+      if (patch.planApprovalContext !== undefined) session.planApprovalContext = patch.planApprovalContext;
+    }
+    if (patch.worktreePath !== undefined) session.worktreePath = patch.worktreePath;
+    if (patch.worktreeBranch !== undefined) session.worktreeBranch = patch.worktreeBranch;
+    if (patch.worktreePrUrl !== undefined) session.worktreePrUrl = patch.worktreePrUrl;
+    if (patch.worktreePrNumber !== undefined) session.worktreePrNumber = patch.worktreePrNumber;
+    if (patch.worktreeMerged !== undefined) session.worktreeMerged = patch.worktreeMerged;
+    if (patch.worktreeMergedAt !== undefined) session.worktreeMergedAt = patch.worktreeMergedAt;
+    if (patch.worktreeDisposition !== undefined) session.worktreeDisposition = patch.worktreeDisposition;
+    if (patch.worktreePrTargetRepo !== undefined) session.worktreePrTargetRepo = patch.worktreePrTargetRepo;
+    if (patch.worktreePushRemote !== undefined) session.worktreePushRemote = patch.worktreePushRemote;
   }
 
   /** Return persisted sessions newest-first. */
@@ -1573,12 +1602,7 @@ export class SessionManager {
       label: `worktree-stale-reminder-${session.name}`,
       userMessage: text,
       notifyUser: "always",
-      buttons: [[
-        { label: "✅ Merge", callbackData: `code-agent:merge:${session.harnessSessionId}` },
-        { label: "📬 Open PR", callbackData: `code-agent:open-pr:${session.harnessSessionId}` },
-        { label: "⏭️ Decide later", callbackData: `code-agent:snooze:${session.harnessSessionId}` },
-        { label: "🗑️ Dismiss (deletes branch)", callbackData: `code-agent:dismiss:${session.harnessSessionId}` },
-      ]],
+      buttons: this.getWorktreeDecisionButtons(session.harnessSessionId),
     });
   }
 
@@ -1603,18 +1627,6 @@ export class SessionManager {
       throw new Error(`AskUserQuestion: no questions in input`);
     }
 
-    if (this.shouldBypassWorktreeDecisionQuestion(session, typedInput)) {
-      const firstQuestion = questions[0];
-      const answer = this.getBypassWorktreeDecisionAnswer(firstQuestion);
-      return {
-        behavior: "allow",
-        updatedInput: {
-          questions,
-          answers: { [firstQuestion.question]: answer },
-        },
-      };
-    }
-
     const firstQuestion = questions[0];
     const options = firstQuestion.options ?? [];
 
@@ -1629,10 +1641,7 @@ export class SessionManager {
 
     let buttons: Array<Array<{ label: string; callbackData: string }>> | undefined;
     if (options.length > 0) {
-      buttons = [options.map((o, i) => ({
-        label: o.label,
-        callbackData: `code-agent:question-answer:${session.id}:${i}`,
-      }))];
+      buttons = [options.map((o, i) => this.makeActionButton(session.id, "question-answer", o.label, { optionIndex: i }))];
     }
 
     const userMessage = [
@@ -1697,6 +1706,7 @@ export class SessionManager {
   cleanup(): void {
     const now = Date.now();
     this.remindStaleDecisions();
+    this.runDailyWorktreeMaintenance(now);
     // GC only evicts terminal sessions from the runtime in-memory map.
     // Persisted entries stay in SessionStore for resume/list/output lookups.
     // "evicted from runtime cache" means removed from `this.sessions`, not lost.
@@ -1713,5 +1723,37 @@ export class SessionManager {
 
     this.store.cleanupTmpOutputFiles(now);
     this.store.evictOldestPersisted(this.maxPersistedSessions);
+  }
+
+  private runDailyWorktreeMaintenance(now: number): void {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const RESOLVED_RETENTION_MS = 7 * DAY_MS;
+    if (now - this.lastDailyMaintenanceAt < DAY_MS) return;
+    this.lastDailyMaintenanceAt = now;
+
+    for (const session of this.store.listPersistedSessions()) {
+      if (!session.worktreePath || !session.workdir) continue;
+      if (session.pendingWorktreeDecisionSince) continue;
+      if (session.worktreeState === "pending_decision") continue;
+
+      const resolvedAtIso =
+        session.worktreeMergedAt
+        ?? session.worktreeDismissedAt
+        ?? session.completedAt
+        ?? session.createdAt;
+      const resolvedAt = typeof resolvedAtIso === "string" ? new Date(resolvedAtIso).getTime() : Number(resolvedAtIso ?? 0);
+      if (!resolvedAt || now - resolvedAt < RESOLVED_RETENTION_MS) continue;
+      if (!existsSync(session.worktreePath)) continue;
+
+      try {
+        removeWorktree(session.workdir, session.worktreePath);
+        this.updatePersistedSession(session.harnessSessionId, {
+          worktreePath: undefined,
+          worktreeState: "none",
+        });
+      } catch (err) {
+        console.warn(`[SessionManager] Failed daily cleanup for worktree ${session.worktreePath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 }

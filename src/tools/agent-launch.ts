@@ -15,7 +15,7 @@ import {
   resolveToolChannel,
 } from "../config";
 import { decideResumeSessionId } from "../resume-policy";
-import type { OpenClawPluginToolContext } from "../types";
+import type { OpenClawPluginToolContext, PersistedSessionInfo } from "../types";
 
 interface AgentLaunchParams {
   prompt: string;
@@ -26,6 +26,7 @@ interface AgentLaunchParams {
   allowed_tools?: string[];
   resume_session_id?: string;
   fork_session?: boolean;
+  force_new_session?: boolean;
   permission_mode?: "default" | "plan" | "bypassPermissions";
   plan_approval?: "ask" | "delegate" | "approve";
   harness?: string;
@@ -43,6 +44,121 @@ function isAgentLaunchParams(value: unknown): value is AgentLaunchParams {
   if (!value || typeof value !== "object") return false;
   const p = value as Record<string, unknown>;
   return typeof p.prompt === "string";
+}
+
+function normalizeThreadId(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  const normalized = String(value).trim();
+  return normalized || undefined;
+}
+
+interface LinkedSessionMatch {
+  ref: string;
+  name: string;
+  status: string;
+  lifecycle?: string;
+  resumable: boolean;
+}
+
+function routeMatchesSession(
+  session: {
+    workdir?: string;
+    originSessionKey?: string;
+    originChannel?: string;
+    originThreadId?: string | number;
+  },
+  route: {
+    workdir: string;
+    originSessionKey?: string;
+    originChannel?: string;
+    originThreadId?: string | number;
+  },
+): boolean {
+  if (session.workdir !== route.workdir) return false;
+  if (route.originSessionKey && session.originSessionKey) {
+    return session.originSessionKey === route.originSessionKey;
+  }
+  if (!route.originChannel || !session.originChannel) return false;
+  return session.originChannel === route.originChannel
+    && normalizeThreadId(session.originThreadId) === normalizeThreadId(route.originThreadId);
+}
+
+function summarizeLinkedSessions(matches: LinkedSessionMatch[]): string {
+  return matches
+    .slice(0, 3)
+    .map((match) => `  - ${match.name} [${match.ref}] | status=${match.status}${match.lifecycle ? ` | lifecycle=${match.lifecycle}` : ""}`)
+    .join("\n");
+}
+
+function findLinkedSessionMatches(
+  sessions: {
+    list: (filter?: "all") => Array<{
+      id: string;
+      name: string;
+      status: string;
+      lifecycle?: string;
+      isExplicitlyResumable?: boolean;
+      workdir: string;
+      originSessionKey?: string;
+      originChannel?: string;
+      originThreadId?: string | number;
+    }>;
+    listPersistedSessions: () => PersistedSessionInfo[];
+  },
+  route: {
+    workdir: string;
+    originSessionKey?: string;
+    originChannel?: string;
+    originThreadId?: string | number;
+  },
+): { resumable: LinkedSessionMatch[]; active: LinkedSessionMatch[] } {
+  const resumable: LinkedSessionMatch[] = [];
+  const active: LinkedSessionMatch[] = [];
+  const seen = new Set<string>();
+
+  for (const session of sessions.list("all")) {
+    if (!routeMatchesSession(session, route)) continue;
+    const key = session.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (session.isExplicitlyResumable) {
+      resumable.push({
+        ref: session.id,
+        name: session.name,
+        status: session.status,
+        lifecycle: session.lifecycle,
+        resumable: true,
+      });
+      continue;
+    }
+    if (session.status === "starting" || session.status === "running") {
+      active.push({
+        ref: session.id,
+        name: session.name,
+        status: session.status,
+        lifecycle: session.lifecycle,
+        resumable: false,
+      });
+    }
+  }
+
+  for (const session of sessions.listPersistedSessions()) {
+    if (!session.resumable) continue;
+    if (!routeMatchesSession(session, route)) continue;
+    const ref = session.sessionId ?? session.harnessSessionId;
+    const key = session.harnessSessionId;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resumable.push({
+      ref,
+      name: session.name,
+      status: session.status,
+      lifecycle: session.lifecycle,
+      resumable: true,
+    });
+  }
+
+  return { resumable, active };
 }
 
 /**
@@ -89,6 +205,9 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
       fork_session: Type.Optional(
         Type.Boolean({ description: "When resuming, fork to a new session instead of continuing the existing one. Use with resume_session_id." }),
       ),
+      force_new_session: Type.Optional(
+        Type.Boolean({ description: "Bypass resume-first protection and start a brand-new linked session even when a resumable or active linked session already exists." }),
+      ),
       permission_mode: Type.Optional(
         Type.Union(
           [Type.Literal("default"), Type.Literal("plan"), Type.Literal("bypassPermissions")],
@@ -107,7 +226,7 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
       worktree_strategy: Type.Optional(
         Type.Union(
           [Type.Literal("off"), Type.Literal("manual"), Type.Literal("ask"), Type.Literal("delegate"), Type.Literal("auto-merge"), Type.Literal("auto-pr")],
-          { description: "Worktree strategy: 'off' (no worktree), 'manual' (create worktree but no auto merge-back), 'ask' (prompt user with Merge/PR/Decide later/Dismiss buttons), 'delegate' (orchestrator decides), 'auto-merge' (merge automatically), 'auto-pr' (DEPRECATED: treated as 'ask'). Defaults to 'off'." },
+          { description: "Worktree strategy: 'off' (no worktree), 'manual' (create worktree but no auto merge-back), 'ask' (prompt user with Merge/PR/Decide later/Dismiss buttons), 'delegate' (orchestrator decides), 'auto-merge' (merge automatically), 'auto-pr' (open/update a PR automatically). Defaults to the plugin config when unset." },
         ),
       ),
       worktree_base_branch: Type.Optional(
@@ -171,6 +290,69 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
           }
         }
 
+        // Resolve origin channel
+        const ctxChannel = resolveToolChannel(ctx);
+        const originChannel = resolveOriginChannel(ctx, ctxChannel || resolveAgentChannel(workdir));
+
+        // Resolve origin session key — prefer ctx.sessionKey (set by the framework),
+        // but reconstruct from available fields if missing.
+        let originSessionKey = ctx.sessionKey || undefined;
+        if (!originSessionKey && ctx.agentId) {
+          // ctx.sessionKey not populated — reconstruct from available context fields.
+          // Format: "agent:{agentId}:{channel}:{chatType}:{chatId}:topic:{threadId}"
+          // We can't reconstruct the full key without chat info, but log the gap for debugging.
+          console.warn(`[agent_launch] ctx.sessionKey is not populated. ctx fields: agentId=${ctx.agentId}, messageChannel=${ctx.messageChannel}, agentAccountId=${ctx.agentAccountId}, workspaceDir=${ctx.workspaceDir}`);
+        }
+
+        if (!params.resume_session_id && !params.force_new_session) {
+          const linked = findLinkedSessionMatches({
+            list: typeof sessionManager.list === "function"
+              ? sessionManager.list.bind(sessionManager)
+              : () => [],
+            listPersistedSessions: typeof sessionManager.listPersistedSessions === "function"
+              ? sessionManager.listPersistedSessions.bind(sessionManager)
+              : () => [],
+          }, {
+            workdir,
+            originSessionKey,
+            originChannel,
+            originThreadId: parseThreadIdFromSessionKey(originSessionKey) ?? resolveOriginThreadId(ctx),
+          });
+          if (linked.resumable.length > 0 || linked.active.length > 0) {
+            const resumableText = linked.resumable.length > 0
+              ? [
+                `Linked resumable session(s) already exist for this thread/workdir:`,
+                summarizeLinkedSessions(linked.resumable),
+                ``,
+                `Resume the latest one with:`,
+                `  agent_respond(session='${linked.resumable[0].ref}', message='<next instruction>')`,
+                `Fork from it with:`,
+                `  agent_launch(prompt='<new task>', resume_session_id='${linked.resumable[0].ref}', fork_session=true)`,
+              ].join("\n")
+              : "";
+            const activeText = linked.active.length > 0
+              ? [
+                linked.resumable.length > 0 ? `Linked active session(s):` : `Linked active session(s) already exist for this thread/workdir:`,
+                summarizeLinkedSessions(linked.active),
+                ``,
+                `Send a follow-up instead of launching a duplicate:`,
+                `  agent_respond(session='${linked.active[0].ref}', message='<next instruction>')`,
+              ].join("\n")
+              : "";
+            const parts = [
+              `Resume-first protection blocked a fresh launch.`,
+              ``,
+              resumableText,
+              activeText,
+              [
+                `If you intentionally want a brand-new independent session here, call:`,
+                `  agent_launch(prompt='<new task>', force_new_session=true)`,
+              ].join("\n"),
+            ].filter(Boolean);
+            return { content: [{ type: "text", text: parts.join("\n\n") }] };
+          }
+        }
+
         // Resolve resume_session_id
         let resolvedResumeId = params.resume_session_id;
         const activeResumeSession = resolvedResumeId
@@ -195,20 +377,6 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
             ? { harness: persistedResumeSession.harness }
             : undefined,
         });
-
-        // Resolve origin channel
-        const ctxChannel = resolveToolChannel(ctx);
-        const originChannel = resolveOriginChannel(ctx, ctxChannel || resolveAgentChannel(workdir));
-
-        // Resolve origin session key — prefer ctx.sessionKey (set by the framework),
-        // but reconstruct from available fields if missing.
-        let originSessionKey = ctx.sessionKey || undefined;
-        if (!originSessionKey && ctx.agentId) {
-          // ctx.sessionKey not populated — reconstruct from available context fields.
-          // Format: "agent:{agentId}:{channel}:{chatType}:{chatId}:topic:{threadId}"
-          // We can't reconstruct the full key without chat info, but log the gap for debugging.
-          console.warn(`[agent_launch] ctx.sessionKey is not populated. ctx fields: agentId=${ctx.agentId}, messageChannel=${ctx.messageChannel}, agentAccountId=${ctx.agentAccountId}, workspaceDir=${ctx.workspaceDir}`);
-        }
 
         const session = sessionManager.spawn({
           prompt: params.prompt,
@@ -256,6 +424,8 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
           if (clearedPersistedCodexResume) {
             details.push(`  Thread state: historical Codex state cleared; starting a fresh thread.`);
           }
+        } else if (params.force_new_session) {
+          details.push(`  Force new session: true`);
         }
         details.push(`  Mode: multi-turn (use agent_respond to send follow-up messages)`);
         details.push(``, `Use agent_sessions to check status, agent_output to see output.`);

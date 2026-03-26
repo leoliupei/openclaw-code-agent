@@ -18,11 +18,7 @@ interface RespondResult {
   isError?: boolean;
 }
 
-const AUTO_RESUMABLE_STATUSES = new Set(["killed", "completed", "failed"]);
-const NON_RESUMABLE_KILL_REASONS = new Set(["startup-timeout"]);
 const DEFAULT_MAX_AUTO_RESPONDS = 10;
-const SIMPLE_APPROVAL_MAX_CHARS = 100;
-const REVISION_KEYWORDS_RE = /\b(change|swap|replace|remove|add|update|instead|don't|revise|modify)\b/i;
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -34,26 +30,8 @@ function getSessionRef(session: ResumableSession): string {
   return "id" in session ? session.id : (session.sessionId ?? session.harnessSessionId);
 }
 
-function isRecoveredRunningStub(session: PersistedSessionInfo): boolean {
-  return session.status === "killed" && session.completedAt == null;
-}
-
-function canAutoResume(session: ResumableSession, allowRecoveredRunningStub: boolean): boolean {
-  return (
-    AUTO_RESUMABLE_STATUSES.has(session.status) &&
-    !!session.harnessSessionId &&
-    (
-      session.status === "failed"
-      || (session.status === "completed" && session.killReason === "done")
-      || (
-        session.status === "killed"
-        && (
-          !NON_RESUMABLE_KILL_REASONS.has(session.killReason ?? "")
-          || (allowRecoveredRunningStub && isRecoveredRunningStub(session as PersistedSessionInfo))
-        )
-      )
-    )
-  );
+function isExplicitlyResumable(session: ResumableSession): boolean {
+  return session.lifecycle === "suspended" && !!session.harnessSessionId;
 }
 
 /**
@@ -97,23 +75,6 @@ async function spawnFreshRelaunch(
   }
 }
 
-function validateApprovalMessage(sessionName: string, message: string): RespondResult | undefined {
-  const isSimpleApproval =
-    message.trim().length < SIMPLE_APPROVAL_MAX_CHARS &&
-    !REVISION_KEYWORDS_RE.test(message);
-  if (isSimpleApproval) return undefined;
-
-  return {
-    text: [
-      `Cannot approve and revise in the same call.`,
-      `Your message appears to contain revision feedback. Send it first WITHOUT approve=true:`,
-      `  agent_respond(session='${sessionName}', message='<your feedback>')`,
-      `The agent will revise the plan. Then approve the revised plan.`,
-    ].join("\n"),
-    isError: true,
-  };
-}
-
 const PLAN_APPROVAL_SYSTEM_PREFIX =
   "[SYSTEM: The user has approved your plan. Exit plan mode immediately and implement the changes with full permissions. Do not ask for further confirmation.]\n\n";
 
@@ -121,9 +82,9 @@ async function tryAutoResume(
   sm: SessionManager,
   session: ResumableSession,
   message: string,
-  options: { allowRecoveredRunningStub?: boolean; approve?: boolean } = {},
+  options: { approve?: boolean } = {},
 ): Promise<RespondResult | undefined> {
-  if (!canAutoResume(session, options.allowRecoveredRunningStub === true)) return undefined;
+  if (!isExplicitlyResumable(session)) return undefined;
 
   // When approve=true is sent to a dead plan-mode session, forward the approval
   // into the resumed session by switching its permission mode to bypassPermissions
@@ -134,10 +95,6 @@ async function tryAutoResume(
     options.approve &&
     (session.pendingPlanApproval || session.currentPermissionMode === "plan")
   );
-  if (isPlanApproval) {
-    const invalid = validateApprovalMessage(session.name, message);
-    if (invalid) return invalid;
-  }
 
   try {
     const activeSession = "harnessName" in session ? session : undefined;
@@ -210,7 +167,7 @@ export async function executeRespond(
     return spawnFreshRelaunch(sm, target, params.message);
   }
 
-  const autoResumeResult = await tryAutoResume(sm, target, params.message, { allowRecoveredRunningStub: !session, approve: params.approve });
+  const autoResumeResult = await tryAutoResume(sm, target, params.message, { approve: params.approve });
   if (autoResumeResult) {
     return autoResumeResult;
   }
@@ -250,11 +207,6 @@ export async function executeRespond(
     const isPlanApproval = !!(params.approve && session.pendingPlanApproval);
     let approvalWarning = "";
     if (params.approve && session.pendingPlanApproval) {
-      // Plan mode approval (existing behavior)
-      const invalidApprovalResult = validateApprovalMessage(session.name, params.message);
-      if (invalidApprovalResult) {
-        return invalidApprovalResult;
-      }
       session.switchPermissionMode("bypassPermissions");
     } else if (params.approve && session.currentPermissionMode === "default") {
       // Non-plan mode escalation — switch to bypassPermissions

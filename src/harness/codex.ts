@@ -13,11 +13,8 @@ import type {
   HarnessResult,
 } from "./types";
 import { createCodexAuthWorkspace, type CodexAuthWorkspace } from "./codex-auth";
-import { looksLikeWaitingForUser } from "../waiting-detector";
 
 const DEFAULT_HEARTBEAT_MS = 10_000;
-
-const CODEX_QUESTION_TOOL = "codex:waiting-for-user" as const;
 
 const CODEX_INPUT_PRICE = 1.10 / 1_000_000;
 const CODEX_CACHED_INPUT_PRICE = 0.275 / 1_000_000;
@@ -143,7 +140,7 @@ export class CodexHarness implements AgentHarness {
     "bypassPermissions",
   ] as const;
 
-  readonly questionToolNames: readonly string[] = [CODEX_QUESTION_TOOL];
+  readonly questionToolNames: readonly string[] = [];
   readonly planApprovalToolNames: readonly string[] = [];
 
   constructor(private readonly deps: CodexHarnessDeps = {}) {}
@@ -164,7 +161,6 @@ export class CodexHarness implements AgentHarness {
    * The harness emits:
    * - `init` once thread identity is known
    * - `text` for assistant/reasoning output
-   * - synthetic `tool_use` events for waiting-for-user only
    * - `activity` heartbeats while a turn is in-flight
    * - `result` exactly once per turn
    *
@@ -384,15 +380,6 @@ export class CodexHarness implements AgentHarness {
 
           if (event.type === "turn.completed") {
             accumulatedCostUsd += estimateCostUsd(event.usage);
-
-            const tail = turnAssistantText.slice(-500);
-            if (looksLikeWaitingForUser(tail)) {
-              enqueue({
-                type: "tool_use",
-                name: CODEX_QUESTION_TOOL,
-                input: { text: tail },
-              });
-            }
 
             emitResult({
               success: true,
