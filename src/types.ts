@@ -15,6 +15,7 @@ export interface OpenClawPluginToolContext {
   sessionKey?: string;
   messageChannel?: string;
   agentAccountId?: string;
+  requesterSenderId?: string | number;
   sandboxed?: boolean;
 }
 

@@ -197,6 +197,7 @@ interface OriginContextLike {
   channel?: string;
   chatId?: string | number;
   senderId?: string | number;
+  requesterSenderId?: string | number;
   channelId?: string;
   messageThreadId?: string | number;
   messageChannel?: string;
@@ -220,6 +221,11 @@ export function resolveToolChannel(ctx: OpenClawPluginToolContext): string | und
     }
     if (parts.length === 1 && ctx.chatId) {
       return `${parts[0]}|${ctx.chatId}`;
+    }
+    if (parts.length === 1 && ctx.requesterSenderId) {
+      return ctx.agentAccountId
+        ? `${parts[0]}|${ctx.agentAccountId}|${ctx.requesterSenderId}`
+        : `${parts[0]}|${ctx.requesterSenderId}`;
     }
     if (parts.length === 1 && ctx.senderId) {
       return `${parts[0]}|${ctx.senderId}`;
