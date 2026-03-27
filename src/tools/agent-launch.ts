@@ -59,13 +59,17 @@ function stripOptionalQuotes(value: string): string {
 }
 
 function extractPromptDeclaredWorkdir(prompt: string): string | undefined {
-  const patterns = [
-    /^Workdir:\s*(.+)$/im,
-    /^Repo:\s*(.+)$/im,
-  ];
-  for (const pattern of patterns) {
-    const match = prompt.match(pattern);
-    const candidate = stripOptionalQuotes(match?.[1] ?? "");
+  const headerBlock = prompt
+    .split(/\n\s*\n/, 1)[0]
+    ?.split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean) ?? [];
+
+  if (headerBlock.length === 0) return undefined;
+
+  for (const line of headerBlock) {
+    const match = line.match(/^(Workdir|Repo):\s*(.+)$/);
+    const candidate = stripOptionalQuotes(match?.[2] ?? "");
     if (candidate.startsWith("/") && existsSync(candidate)) {
       return candidate;
     }

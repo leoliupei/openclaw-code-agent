@@ -251,13 +251,43 @@ describe("agent_launch tool defaults", () => {
 
       const tool = makeAgentLaunchTool({ workspaceDir: "/tmp/orchestrator-workspace" });
       await tool.execute("tool-id", {
-        prompt: `Investigate the bug.\n\nRepo: ${repoDir}\nWorkdir: ${repoDir}`,
+        prompt: `Workdir: ${repoDir}\nRepo: ${repoDir}\n\nInvestigate the bug.`,
       });
 
       assert.ok(spawnConfig, "spawn should be called");
       assert.equal(spawnConfig?.workdir, repoDir);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not scan ordinary prompt body text for workdir metadata", async () => {
+    let spawnConfig: Record<string, unknown> | undefined;
+    const repoDir = mkdtempSync(join(tmpdir(), "agent-launch-body-workdir-"));
+    const fallbackDir = mkdtempSync(join(tmpdir(), "agent-launch-fallback-workdir-"));
+    try {
+      setSessionManager({
+        resolveHarnessSessionId: (id: string) => id,
+        spawn(config: Record<string, unknown>) {
+          spawnConfig = config;
+          return {
+            id: "sess-body-workdir",
+            name: "body-workdir",
+            model: config.model,
+          };
+        },
+      } as any);
+
+      const tool = makeAgentLaunchTool({ workspaceDir: fallbackDir });
+      await tool.execute("tool-id", {
+        prompt: `Investigate the bug.\n\nThe notes say Repo: ${repoDir} but that should not be parsed as launch metadata.`,
+      });
+
+      assert.ok(spawnConfig, "spawn should be called");
+      assert.equal(spawnConfig?.workdir, fallbackDir);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+      rmSync(fallbackDir, { recursive: true, force: true });
     }
   });
 
