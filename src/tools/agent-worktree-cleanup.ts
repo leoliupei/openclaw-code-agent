@@ -1,10 +1,10 @@
 import { Type } from "@sinclair/typebox";
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
-import { getPersistedMutationRefs, getPrimarySessionLookupRef } from "../session-backend-ref";
 import type { OpenClawPluginToolContext } from "../types";
 import { deleteBranch, detectDefaultBranch, getBranchName, isGitHubCLIAvailable } from "../worktree";
 import { sessionManager } from "../singletons";
+import { getPersistedTargetMutationRefs, resolveWorktreeToolTarget } from "./worktree-tool-context";
 
 interface AgentWorktreeCleanupParams {
   workdir?: string;
@@ -188,9 +188,9 @@ export function makeAgentWorktreeCleanupTool(_ctx?: OpenClawPluginToolContext) {
 
       // If session is provided, clear the pending worktree decision for it
       if (sessionRef && sessionManager) {
-        const persistedSession = sessionManager.getPersistedSession(sessionRef);
-        if (persistedSession) {
-          for (const mutationRef of getPersistedMutationRefs(persistedSession)) {
+        const target = resolveWorktreeToolTarget(sessionManager, sessionRef);
+        if (target.persistedSession) {
+          for (const mutationRef of getPersistedTargetMutationRefs(target)) {
             sessionManager.updatePersistedSession(mutationRef, {
               pendingWorktreeDecisionSince: undefined,
               lastWorktreeReminderAt: undefined,

@@ -1,7 +1,4 @@
 import { EventEmitter } from "events";
-import { appendFileSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
 import { nanoid } from "nanoid";
 import { getDefaultHarness, getHarness } from "./harness";
 import type { AgentHarness, HarnessSession, HarnessMessage } from "./harness";
@@ -42,64 +39,16 @@ import {
   type SessionControlState,
   applySessionControlPatch,
 } from "./session-state";
+import { MessageStream } from "./session-message-stream";
+import { appendSessionOutput } from "./session-output";
+import { SessionTimerRegistry } from "./session-timer-registry";
 import { getBranchName } from "./worktree";
 
-const OUTPUT_BUFFER_MAX = 2000;
 const STARTUP_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-
-export function getSessionOutputFilePath(sessionId: string): string {
-  return join(tmpdir(), `openclaw-agent-${sessionId}.txt`);
-}
+export { getSessionOutputFilePath } from "./session-output";
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/**
- * Async queue used as the prompt stream for multi-turn harnesses.
- *
- * `Session.sendMessage()` pushes follow-up user messages into this queue and
- * the harness consumes it with `for await`.
- *
- * `hasPending()` is critical at turn boundaries: if follow-up prompts were
- * queued during an active turn, we keep the session alive so the queue can be
- * drained on the next turn instead of killing with reason `done`.
- */
-class MessageStream {
-  private queue: unknown[] = [];
-  private resolve: (() => void) | null = null;
-  private done: boolean = false;
-
-  /** Return true when follow-up prompts are queued but not consumed yet. */
-  hasPending(): boolean {
-    return this.queue.length > 0;
-  }
-
-  push(msg: unknown): void {
-    this.queue.push(msg);
-    if (this.resolve) {
-      this.resolve();
-      this.resolve = null;
-    }
-  }
-
-  end(): void {
-    this.done = true;
-    if (this.resolve) {
-      this.resolve();
-      this.resolve = null;
-    }
-  }
-
-  async *[Symbol.asyncIterator](): AsyncGenerator<unknown, void, undefined> {
-    while (true) {
-      while (this.queue.length > 0) {
-        yield this.queue.shift()!;
-      }
-      if (this.done) return;
-      await new Promise<void>((r) => { this.resolve = r; });
-    }
-  }
 }
 
 /**
@@ -212,7 +161,7 @@ export class Session extends EventEmitter {
   autoRespondCount: number = 0;
 
   // Centralized timer management
-  private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly timers = new SessionTimerRegistry();
 
   constructor(config: SessionConfig, name: string) {
     super();
@@ -297,23 +246,15 @@ export class Session extends EventEmitter {
   // -- Timer management --
 
   private setTimer(name: string, ms: number, cb: () => void): void {
-    this.clearTimer(name);
-    const timer = setTimeout(cb, ms);
-    timer.unref?.();
-    this.timers.set(name, timer);
+    this.timers.set(name, ms, cb);
   }
 
   private clearTimer(name: string): void {
-    const t = this.timers.get(name);
-    if (t) {
-      clearTimeout(t);
-      this.timers.delete(name);
-    }
+    this.timers.clear(name);
   }
 
   private clearAllTimers(): void {
-    for (const t of this.timers.values()) clearTimeout(t);
-    this.timers.clear();
+    this.timers.clearAll();
   }
 
   private markPendingPlanApproval(context: PlanApprovalContext): void {
@@ -597,16 +538,8 @@ export class Session extends EventEmitter {
         if (!this.pendingPlanApproval) {
           this.lastTurnHadQuestion = false;
         }
-        this.outputBuffer.push(text);
-        if (this.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-          this.outputBuffer.splice(0, this.outputBuffer.length - OUTPUT_BUFFER_MAX);
-        }
+        appendSessionOutput(this.outputBuffer, this.id, text);
         this.currentTurnText += this.currentTurnText ? `\n${text}` : text;
-        try {
-          appendFileSync(getSessionOutputFilePath(this.id), text + "\n", "utf-8");
-        } catch {
-          // best-effort; don't let disk errors interrupt the session
-        }
         this.emit("output", this, text);
       } else if (msg.type === "tool_call") {
         const name = msg.name;
@@ -646,16 +579,8 @@ export class Session extends EventEmitter {
         if (msg.finalized) {
           const markdown = msg.artifact.markdown.trim();
           if (markdown && this.currentTurnText.trim() !== markdown) {
-            this.outputBuffer.push(markdown);
-            if (this.outputBuffer.length > OUTPUT_BUFFER_MAX) {
-              this.outputBuffer.splice(0, this.outputBuffer.length - OUTPUT_BUFFER_MAX);
-            }
+            appendSessionOutput(this.outputBuffer, this.id, markdown);
             this.currentTurnText = markdown;
-            try {
-              appendFileSync(getSessionOutputFilePath(this.id), markdown + "\n", "utf-8");
-            } catch {
-              // best-effort
-            }
             this.emit("output", this, markdown);
           }
         }

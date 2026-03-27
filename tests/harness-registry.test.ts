@@ -7,6 +7,7 @@ import {
   listHarnesses,
 } from "../src/harness/index";
 import type { AgentHarness } from "../src/harness/types";
+import { assertStructuredBackendContract } from "./backend-contract-fixture";
 
 // ---------------------------------------------------------------------------
 // Built-in ClaudeCodeHarness (auto-registered on module import)
@@ -103,15 +104,9 @@ describe("ClaudeCodeHarness properties", () => {
 
   it("surfaces structured capabilities instead of tool-name heuristics", () => {
     const h = getHarness("claude-code");
+    assertStructuredBackendContract(h);
     assert.equal(h.capabilities.nativePendingInput, false);
     assert.equal(h.capabilities.nativePlanArtifacts, false);
-  });
-
-  it("has expected supportedPermissionModes", () => {
-    const h = getHarness("claude-code");
-    assert.ok(h.supportedPermissionModes.includes("default"));
-    assert.ok(h.supportedPermissionModes.includes("plan"));
-    assert.ok(h.supportedPermissionModes.includes("bypassPermissions"));
   });
 
   it("buildUserMessage returns correct structure", () => {

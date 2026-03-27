@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { getHarness } from "../src/harness";
+import { assertStructuredBackendContract } from "./backend-contract-fixture";
 
 describe("backend contract smoke", () => {
   it("keeps both built-in backends on the shared structured contract", () => {
@@ -8,12 +9,7 @@ describe("backend contract smoke", () => {
     const claude = getHarness("claude-code");
 
     for (const harness of [codex, claude]) {
-      assert.ok(harness.supportedPermissionModes.includes("default"));
-      assert.ok(harness.supportedPermissionModes.includes("plan"));
-      assert.ok(harness.supportedPermissionModes.includes("bypassPermissions"));
-      assert.equal(typeof harness.capabilities.nativePendingInput, "boolean");
-      assert.equal(typeof harness.capabilities.nativePlanArtifacts, "boolean");
-      assert.ok(["plugin-managed", "native-execution", "native-restore"].includes(harness.capabilities.worktrees));
+      assertStructuredBackendContract(harness);
     }
 
     assert.equal(codex.backendKind, "codex-app-server");

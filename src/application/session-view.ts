@@ -85,6 +85,10 @@ function splitOutputLines(content: string): string[] {
   return lines;
 }
 
+function displayBackendConversationId(persisted: PersistedSessionInfo): string | undefined {
+  return persisted.backendRef?.conversationId ?? persisted.harnessSessionId;
+}
+
 function readOutputLinesFromFile(path: string, options: OutputOptions, linesToShow: number): string[] {
   const fileContent = readFileSync(path, "utf-8");
   const lines = splitOutputLines(fileContent);
@@ -118,8 +122,9 @@ function outputHeaderForActiveSession(session: ActiveSessionView): string {
 
 /** Build a header line for persisted sessions loaded from disk/tmp output. */
 function outputHeaderForPersistedSession(persisted: PersistedSessionInfo): string {
+  const displayName = persisted.name || displayBackendConversationId(persisted) || persisted.sessionId || "unknown";
   return [
-    `Session: ${persisted.name || persisted.harnessSessionId} | Status: ${persisted.status.toUpperCase()} | Cost: $${persisted.costUsd.toFixed(4)}`,
+    `Session: ${displayName} | Status: ${persisted.status.toUpperCase()} | Cost: $${persisted.costUsd.toFixed(4)}`,
     `(retrieved from ${persisted.outputPath} — evicted from runtime cache — showing persisted output)`,
     `${"─".repeat(60)}`,
   ].join("\n");
@@ -234,10 +239,11 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
     }
     const end = p.completedAt ?? Date.now();
     const start = p.createdAt ?? end;
-    const key = p.sessionId ?? `persisted:${p.harnessSessionId}`;
+    const backendConversationId = displayBackendConversationId(p);
+    const key = p.sessionId ?? `persisted:${backendConversationId ?? p.harnessSessionId}`;
     merged.set(key, {
-      id: p.sessionId ?? p.harnessSessionId,
-      name: p.name || p.harnessSessionId,
+      id: p.sessionId ?? backendConversationId ?? p.harnessSessionId,
+      name: p.name || backendConversationId || p.harnessSessionId,
       status: p.status,
       startedAt: p.createdAt ?? 0,
       completedAt: p.completedAt,

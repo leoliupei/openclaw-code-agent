@@ -1,10 +1,10 @@
 import { Type } from "@sinclair/typebox";
 import { existsSync } from "fs";
 import { getDefaultHarnessName } from "../config";
-import { getPersistedMutationRefs, getPrimarySessionLookupRef } from "../session-backend-ref";
 import { sessionManager } from "../singletons";
 import type { OpenClawPluginToolContext } from "../types";
 import { mergeBranch, pushBranch, deleteBranch, detectDefaultBranch, removeWorktree, pruneWorktrees, getDiffSummary, formatWorktreeOutcomeLine } from "../worktree";
+import { getPersistedTargetMutationRefs, resolveWorktreeToolTarget } from "./worktree-tool-context";
 
 interface AgentMergeParams {
   session: string;
@@ -45,22 +45,20 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
       }
 
       // Resolve session (active or persisted)
-      let targetSession = sessionManager.resolve(params.session);
-      let persistedSession = sessionManager.getPersistedSession(params.session);
+      const target = resolveWorktreeToolTarget(sessionManager, params.session);
+      const targetSession = target.activeSession;
+      const persistedSession = target.persistedSession;
 
       if (!targetSession && !persistedSession) {
         return { content: [{ type: "text", text: `Error: Session "${params.session}" not found.` }] };
       }
 
-      // Extract worktree info
-      const worktreePath = targetSession?.worktreePath ?? persistedSession?.worktreePath;
-      const originalWorkdir = targetSession?.originalWorkdir ?? persistedSession?.workdir;
+      const { worktreePath, originalWorkdir, branchName } = target;
 
       if (!worktreePath || !originalWorkdir) {
         return { content: [{ type: "text", text: `Error: Session "${params.session}" does not have a worktree.` }] };
       }
 
-      const branchName = targetSession?.worktreeBranch ?? persistedSession?.worktreeBranch;
       if (!branchName) {
         return { content: [{ type: "text", text: `Error: Cannot determine branch name for worktree at ${worktreePath}. The worktree may have been removed and no persisted branch name is available.` }] };
       }
@@ -92,9 +90,7 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
         content: [{ type: "text", text: "❌ Merge did not run (internal error)" }],
       };
 
-      const persistedRef = targetSession
-        ? getPrimarySessionLookupRef(targetSession)
-        : (persistedSession ? getPrimarySessionLookupRef(persistedSession) : undefined);
+      const persistedRef = target.persistedRef;
 
       await sessionManager.enqueueMerge(effectiveWorkdir, async () => {
         // Re-check inside the queue slot — a concurrent auto-merge may have beaten us
@@ -132,7 +128,7 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
 
           // Persist merge status if we have a persisted session
           if (freshPersisted) {
-            for (const mutationRef of getPersistedMutationRefs(freshPersisted)) {
+            for (const mutationRef of getPersistedTargetMutationRefs({ ...target, persistedSession: freshPersisted })) {
               sessionManager.updatePersistedSession(mutationRef, {
                 worktreeMerged: true,
                 worktreeMergedAt: new Date().toISOString(),
@@ -153,12 +149,7 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
             deletions: diffSummary?.deletions,
           });
           sessionManager.notifyWorktreeOutcome(
-            targetSession ?? {
-              id: persistedRef ?? params.session,
-              harnessSessionId: targetSession?.harnessSessionId ?? persistedSession?.harnessSessionId,
-              backendRef: targetSession?.backendRef ?? persistedSession?.backendRef,
-              route: persistedSession?.route,
-            },
+            target.notificationTarget!,
             outcomeLine
           );
 

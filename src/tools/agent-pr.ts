@@ -1,9 +1,9 @@
 import { Type } from "@sinclair/typebox";
 import { existsSync } from "fs";
-import { getPrimarySessionLookupRef } from "../session-backend-ref";
 import { sessionManager } from "../singletons";
 import type { OpenClawPluginToolContext } from "../types";
 import { getDiffSummary, createPR, pushBranch, isGitHubCLIAvailable, detectDefaultBranch, syncWorktreePR, commentOnPR, resolveTargetRepo, formatWorktreeOutcomeLine } from "../worktree";
+import { resolveWorktreeToolTarget } from "./worktree-tool-context";
 
 interface AgentPrParams {
   session: string;
@@ -61,23 +61,20 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
       }
 
       // Resolve session (active or persisted)
-      const targetSession = sessionManager.resolve(params.session);
-      const persistedSession = sessionManager.getPersistedSession(params.session);
+      const target = resolveWorktreeToolTarget(sessionManager, params.session);
+      const targetSession = target.activeSession;
+      const persistedSession = target.persistedSession;
 
       if (!targetSession && !persistedSession) {
         return { content: [{ type: "text", text: `Error: Session "${params.session}" not found.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
-      // Extract worktree info
-      const worktreePath = targetSession?.worktreePath ?? persistedSession?.worktreePath;
-      const originalWorkdir = targetSession?.originalWorkdir ?? persistedSession?.workdir;
-      const sessionName = targetSession?.name ?? persistedSession?.name ?? params.session;
+      const { worktreePath, originalWorkdir, sessionName, branchName } = target;
 
       if (!worktreePath || !originalWorkdir) {
         return { content: [{ type: "text", text: `Error: Session "${params.session}" does not have a worktree.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
 
-      const branchName = targetSession?.worktreeBranch ?? persistedSession?.worktreeBranch;
       if (!branchName) {
         return { content: [{ type: "text", text: `Error: Cannot determine branch name for worktree ${worktreePath}. The worktree may have been removed and no persisted branch name is available.` }], meta: { success: false, state: "error" } } satisfies AgentPrExecuteResult;
       }
@@ -86,9 +83,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
       }
 
       const baseBranch = params.base_branch ?? detectDefaultBranch(originalWorkdir);
-      const persistedRef = targetSession
-        ? getPrimarySessionLookupRef(targetSession)
-        : (persistedSession ? getPrimarySessionLookupRef(persistedSession) : undefined);
+      const persistedRef = target.persistedRef;
 
       // Resolve target repository for cross-repo PRs
       const targetRepo = resolveTargetRepo(originalWorkdir, params.target_repo ?? persistedSession?.worktreePrTargetRepo);
@@ -159,12 +154,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
               prUrl: prStatus.url,
             });
             sessionManager.notifyWorktreeOutcome(
-              targetSession ?? {
-                id: persistedRef ?? params.session,
-                harnessSessionId: targetSession?.harnessSessionId ?? persistedSession?.harnessSessionId,
-                backendRef: targetSession?.backendRef ?? persistedSession?.backendRef,
-                route: persistedSession?.route,
-              },
+              target.notificationTarget!,
               updateOutcomeLine
             );
             return {
@@ -301,12 +291,7 @@ export function makeAgentPrTool(_ctx?: OpenClawPluginToolContext) {
             prUrl: prResult.prUrl,
           });
           sessionManager.notifyWorktreeOutcome(
-            targetSession ?? {
-              id: persistedRef ?? params.session,
-              harnessSessionId: targetSession?.harnessSessionId ?? persistedSession?.harnessSessionId,
-              backendRef: targetSession?.backendRef ?? persistedSession?.backendRef,
-              route: persistedSession?.route,
-            },
+            target.notificationTarget!,
             outcomeLine
           );
 
