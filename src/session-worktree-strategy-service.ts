@@ -4,7 +4,7 @@ import type { PersistedSessionInfo } from "./types";
 import type { SessionNotificationRequest } from "./wake-dispatcher";
 import type { WorktreeCompletionState } from "./session-worktree-controller";
 import type { EmbeddedEvalResult } from "./embedded-eval";
-import { getPrimarySessionLookupRef, usesNativeBackendWorktree } from "./session-backend-ref";
+import { getPersistedMutationRefs, getPrimarySessionLookupRef, usesNativeBackendWorktree } from "./session-backend-ref";
 import { buildDelegateWorktreeWakeMessage, buildNoChangeDeliverableMessage, buildWorktreeDecisionSummary } from "./session-notification-builder";
 import {
   removeWorktree,
@@ -61,15 +61,11 @@ export class SessionWorktreeStrategyService {
   ) {}
 
   private updatePersistedSessionFor(
-    session: Pick<Session, "id" | "harnessSessionId">,
+    session: Pick<Session, "id" | "harnessSessionId" | "backendRef">,
     patch: Partial<PersistedSessionInfo>,
   ): void {
-    const primaryRef = getPrimarySessionLookupRef(session);
-    if (primaryRef) {
-      this.deps.updatePersistedSession(primaryRef, patch);
-    }
-    if (session.harnessSessionId && session.harnessSessionId !== primaryRef) {
-      this.deps.updatePersistedSession(session.harnessSessionId, patch);
+    for (const mutationRef of getPersistedMutationRefs(session)) {
+      this.deps.updatePersistedSession(mutationRef, patch);
     }
   }
 

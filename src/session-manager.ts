@@ -1,5 +1,3 @@
-import { existsSync } from "fs";
-
 import { Session } from "./session";
 import { pluginConfig, getDefaultHarnessName } from "./config";
 import { generateSessionName, lastCompleteLines } from "./format";
@@ -8,6 +6,7 @@ import { pathsReferToSameLocation } from "./path-utils";
 import { SessionSemanticAdapter } from "./session-semantic-adapter";
 import {
   getBackendConversationId,
+  getPersistedMutationRefs,
   getPrimarySessionLookupRef,
   usesNativeBackendWorktree,
 } from "./session-backend-ref";
@@ -34,14 +33,14 @@ import { SessionWorktreeController } from "./session-worktree-controller";
 import { SessionQuestionService, type PendingAskUserQuestion } from "./session-question-service";
 import { SessionReminderService } from "./session-reminder-service";
 import { SessionLifecycleService } from "./session-lifecycle-service";
+import { SessionWorktreeDecisionService } from "./session-worktree-decision-service";
 import {
   getStoppedStatusLabel as formatStoppedStatusLabel,
 } from "./session-notification-builder";
 import {
-  removeWorktree,
-  deleteBranch,
   getPrimaryRepoRootFromWorktree,
   isGitHubCLIAvailable,
+  removeWorktree,
 } from "./worktree";
 
 
@@ -90,6 +89,7 @@ export class SessionManager {
   private readonly stateSync: SessionStateSyncService;
   private readonly references: SessionReferenceService;
   private readonly worktreeStrategy: SessionWorktreeStrategyService;
+  private readonly worktreeDecisions: SessionWorktreeDecisionService;
 
   constructor(maxSessions: number = 20, maxPersistedSessions: number = 50) {
     this.maxSessions = maxSessions;
@@ -180,6 +180,14 @@ export class SessionManager {
       originThreadLine: (session) => this.originThreadLine(session),
       debounceWaitingEvent: (sessionId) => this.debounceWaitingEvent(sessionId),
       isAlreadyMerged: (harnessSessionId) => this.isAlreadyMerged(harnessSessionId),
+    });
+    this.worktreeDecisions = new SessionWorktreeDecisionService({
+      getPersistedSession: (ref) => this.store.getPersistedSession(ref),
+      resolveActiveSession: (ref) => this.references.resolveActive(ref),
+      resolveWorktreeRepoDir: (repoDir, worktreePath) => this.resolveWorktreeRepoDir(repoDir, worktreePath),
+      updatePersistedSession: (ref, patch) => this.updatePersistedSession(ref, patch),
+      dispatchNotification: (session, request) => this.notifications.dispatch(session, request),
+      buildRoutingProxy: (session) => this.buildRoutingProxy(session),
     });
   }
 
@@ -422,92 +430,11 @@ export class SessionManager {
   }
 
   async dismissWorktree(ref: string): Promise<string> {
-    const persistedSession = this.store.getPersistedSession(ref);
-    const activeSession = this.resolve(ref);
-    const session = activeSession ?? persistedSession;
-    if (!session) return `Error: Session "${ref}" not found.`;
-
-    const worktreePath = activeSession?.worktreePath ?? persistedSession?.worktreePath;
-    const repoDir = this.resolveWorktreeRepoDir(activeSession?.originalWorkdir ?? persistedSession?.workdir, worktreePath);
-    const branchName = activeSession?.worktreeBranch ?? persistedSession?.worktreeBranch;
-    const sessionName = activeSession?.name ?? persistedSession?.name ?? ref;
-
-    if (!repoDir) return `Error: No workdir found for session "${ref}".`;
-
-    // Remove worktree directory
-    const nativeBackendWorktree = !!session && usesNativeBackendWorktree(session);
-    if (!nativeBackendWorktree && worktreePath && existsSync(worktreePath)) {
-      removeWorktree(repoDir, worktreePath);
-    }
-
-    // Delete branch
-    if (branchName) {
-      deleteBranch(repoDir, branchName);
-    }
-
-    // Update persisted state
-    const persistedRef = activeSession
-      ? getPrimarySessionLookupRef(activeSession)
-      : (persistedSession ? getPrimarySessionLookupRef(persistedSession) : undefined);
-    if (persistedRef) {
-      this.updatePersistedSession(persistedRef, {
-        worktreeDisposition: "dismissed",
-        worktreeDismissedAt: new Date().toISOString(),
-        pendingWorktreeDecisionSince: undefined,
-        worktreeState: "dismissed",
-        lifecycle: "terminal",
-        worktreePath: undefined,
-        worktreeBranch: undefined,
-      } as Partial<PersistedSessionInfo>);
-    }
-
-    // Notify
-    const msg = nativeBackendWorktree
-      ? `🗑️ [${sessionName}] Branch \`${branchName ?? "unknown"}\` dismissed. Native backend worktree released for backend cleanup.`
-      : `🗑️ [${sessionName}] Branch \`${branchName ?? "unknown"}\` dismissed and permanently deleted.`;
-    const routingProxy = this.buildRoutingProxy({
-      id: getPrimarySessionLookupRef(activeSession ?? persistedSession ?? { id: ref }) ?? ref,
-      sessionId: persistedSession?.sessionId,
-      harnessSessionId: activeSession?.harnessSessionId ?? persistedSession?.harnessSessionId,
-      backendRef: activeSession?.backendRef ?? persistedSession?.backendRef,
-      route: activeSession?.route ?? persistedSession?.route,
-    });
-    this.notifications.dispatch(routingProxy, {
-      label: "worktree-dismissed",
-      userMessage: msg,
-      notifyUser: "always",
-    });
-
-    return msg;
+    return this.worktreeDecisions.dismissWorktree(ref);
   }
 
   snoozeWorktreeDecision(ref: string): string {
-    const persistedSession = this.store.getPersistedSession(ref);
-    if (!persistedSession) return `Error: Session "${ref}" not found.`;
-
-    const snoozedUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    this.updatePersistedSession(getPrimarySessionLookupRef(persistedSession) ?? persistedSession.harnessSessionId, {
-      worktreeDecisionSnoozedUntil: snoozedUntil,
-      lastWorktreeReminderAt: new Date().toISOString(),
-    } as Partial<PersistedSessionInfo>);
-
-    const branchName = persistedSession.worktreeBranch ?? "unknown";
-    const msg = `⏭️ Reminder snoozed 24h for \`${branchName}\` (session: ${persistedSession.name})`;
-
-    const routingProxy = this.buildRoutingProxy({
-      id: getPrimarySessionLookupRef(persistedSession) ?? persistedSession.harnessSessionId,
-      sessionId: persistedSession.sessionId,
-      harnessSessionId: persistedSession.harnessSessionId,
-      backendRef: persistedSession.backendRef,
-      route: persistedSession.route,
-    });
-    this.notifications.dispatch(routingProxy, {
-      label: "worktree-snoozed",
-      userMessage: msg,
-      notifyUser: "always",
-    });
-
-    return msg;
+    return this.worktreeDecisions.snoozeWorktreeDecision(ref);
   }
 
   /**
@@ -668,9 +595,14 @@ export class SessionManager {
     }
   }
 
-  /** Resolve any reference to a persisted harness session id for resume flows. */
-  resolveHarnessSessionId(ref: string): string | undefined {
+  /** Resolve any reference to a canonical backend conversation id for resume flows. */
+  resolveBackendConversationId(ref: string): string | undefined {
     return this.references.resolveBackendConversationId(ref);
+  }
+
+  /** Compatibility wrapper retained for older callers/tests. */
+  resolveHarnessSessionId(ref: string): string | undefined {
+    return this.resolveBackendConversationId(ref);
   }
 
   /** Read persisted metadata by harness id, internal id, or name. */
@@ -814,10 +746,12 @@ export class SessionManager {
         if (!usesNativeBackendWorktree(session)) {
           removeWorktree(repoDir, session.worktreePath);
         }
-        this.updatePersistedSession(getPrimarySessionLookupRef(session) ?? session.harnessSessionId, {
-          worktreePath: undefined,
-          worktreeState: "none",
-        });
+        for (const mutationRef of getPersistedMutationRefs(session)) {
+          this.updatePersistedSession(mutationRef, {
+            worktreePath: undefined,
+            worktreeState: "none",
+          });
+        }
       } catch (err) {
         console.warn(`[SessionManager] Failed daily cleanup for worktree ${session.worktreePath}: ${err instanceof Error ? err.message : String(err)}`);
       }

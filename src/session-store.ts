@@ -379,9 +379,9 @@ export class SessionStore {
     return winner;
   }
 
-  /** Resolve any session reference to a harness session id, if possible. */
-  resolveHarnessSessionId(ref: string, activeHarnessSessionId?: string): string | undefined {
-    if (activeHarnessSessionId) return activeHarnessSessionId;
+  /** Resolve any session reference to the canonical backend conversation id, if possible. */
+  resolveBackendConversationId(ref: string, activeBackendConversationId?: string): string | undefined {
+    if (activeBackendConversationId) return activeBackendConversationId;
 
     const byId = this.idIndex.get(ref);
     if (byId) {
@@ -407,6 +407,11 @@ export class SessionStore {
 
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)) return ref;
     return undefined;
+  }
+
+  /** Compatibility wrapper retained for older call sites and tests. */
+  resolveHarnessSessionId(ref: string, activeHarnessSessionId?: string): string | undefined {
+    return this.resolveBackendConversationId(ref, activeHarnessSessionId);
   }
 
   /** Resolve persisted session metadata by harness id, internal id, or name. */

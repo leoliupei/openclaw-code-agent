@@ -123,6 +123,7 @@ Prefer fully routable channel strings such as `telegram|123456789` or `telegram|
 - Claude Code stays on plugin-managed worktrees.
 - Codex now runs through App Server structured events and may execute inside a native backend-managed worktree.
 - Merge, PR, reminder, and decision policy remain plugin-owned above both backends.
+- Operators should continue sessions by plugin session ID or name. Backend conversation IDs are accepted only for recovery and diagnostics.
 
 ## Tool Surface
 

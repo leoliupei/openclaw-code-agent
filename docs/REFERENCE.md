@@ -157,7 +157,7 @@ Launch a background coding session.
 | `model` | `string` | No | Defaults to the selected harness default model |
 | `system_prompt` | `string` | No | Extra system prompt |
 | `allowed_tools` | `string[]` | No | Harness tool allowlist |
-| `resume_session_id` | `string` | No | Resume by plugin session ID, name, or persisted backend conversation ID; linked resumable sessions are preferred over creating a duplicate fresh launch |
+| `resume_session_id` | `string` | No | Resume by plugin session ID or name. Persisted backend conversation IDs still work for recovery/diagnostics, but they are not the normal operator-facing path |
 | `fork_session` | `boolean` | No | Fork instead of continuing when resuming |
 | `permission_mode` | `default \| plan \| bypassPermissions` | No | Defaults to plugin `permissionMode` |
 | `harness` | `string` | No | Defaults to `defaultHarness` |
@@ -181,7 +181,7 @@ Send a follow-up, redirect work, approve a plan, or escalate a `default` mode se
 
 | Parameter | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `session` | `string` | Yes | Prefer the plugin session ID or name; persisted backend conversation IDs are still accepted for recovery/diagnostics |
+| `session` | `string` | Yes | Prefer the plugin session ID or name. Persisted backend conversation IDs are accepted only for recovery/diagnostics |
 | `message` | `string` | Yes | Follow-up text |
 | `interrupt` | `boolean` | No | Abort the current turn before sending |
 | `userInitiated` | `boolean` | No | Reset the auto-respond counter |

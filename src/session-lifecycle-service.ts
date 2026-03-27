@@ -1,6 +1,6 @@
 import { removeWorktree, deleteBranch } from "./worktree";
 import { formatDuration, truncateText } from "./format";
-import { getPrimarySessionLookupRef, usesNativeBackendWorktree } from "./session-backend-ref";
+import { getPersistedMutationRefs, usesNativeBackendWorktree } from "./session-backend-ref";
 import {
   buildCompletedPayload,
   buildFailedPayload,
@@ -111,9 +111,8 @@ export class SessionLifecycleService {
         deleteBranch(repoDir, branchName);
       }
 
-      const sessionRef = getPrimarySessionLookupRef(session) ?? session.harnessSessionId;
-      if (sessionRef) {
-        this.deps.updatePersistedSession(sessionRef, {
+      for (const mutationRef of getPersistedMutationRefs(session)) {
+        this.deps.updatePersistedSession(mutationRef, {
           worktreePath: undefined,
           worktreeBranch: undefined,
         });

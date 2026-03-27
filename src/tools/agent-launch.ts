@@ -411,7 +411,10 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
           ? sessionManager.getPersistedSession(resolvedResumeId)
           : undefined;
         if (resolvedResumeId) {
-          const resolved = sessionManager.resolveHarnessSessionId(resolvedResumeId);
+          const resolved = (
+            sessionManager.resolveBackendConversationId?.(resolvedResumeId)
+            ?? sessionManager.resolveHarnessSessionId?.(resolvedResumeId)
+          );
           if (!resolved) {
             return { content: [{ type: "text", text: `Error: Could not resolve resume_session_id "${resolvedResumeId}" to a session ID. Use agent_sessions to list available sessions.` }] };
           }

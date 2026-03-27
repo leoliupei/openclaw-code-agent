@@ -187,7 +187,7 @@ Stored data includes:
 - harness, model, and backend ref
 - workdir and worktree metadata
 - origin routing metadata
-- backend conversation ID
+- backend conversation ID for diagnostics and recovery
 - output stubs and persisted stream references
 
 `backendRef` is required for all new-schema sessions. Codex SDK-era persisted sessions are archived and not loaded.

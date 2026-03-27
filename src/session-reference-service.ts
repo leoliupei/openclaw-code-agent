@@ -6,7 +6,7 @@ const ACTIVE_STATUSES = new Set<SessionStatus>(["starting", "running"]);
 
 type SessionStoreLike = Pick<
   import("./session-store").SessionStore,
-  "getPersistedSession" | "resolveHarnessSessionId"
+  "getPersistedSession" | "resolveBackendConversationId"
 >;
 
 /**
@@ -42,7 +42,7 @@ export class SessionReferenceService {
 
   resolveBackendConversationId(ref: string): string | undefined {
     const active = this.resolveActive(ref);
-    return this.store.resolveHarnessSessionId(
+    return this.store.resolveBackendConversationId(
       ref,
       active ? (getBackendConversationId(active) ?? active.harnessSessionId) : undefined,
     );

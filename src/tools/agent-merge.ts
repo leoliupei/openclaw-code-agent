@@ -1,7 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import { existsSync } from "fs";
 import { getDefaultHarnessName } from "../config";
-import { getPrimarySessionLookupRef } from "../session-backend-ref";
+import { getPersistedMutationRefs, getPrimarySessionLookupRef } from "../session-backend-ref";
 import { sessionManager } from "../singletons";
 import type { OpenClawPluginToolContext } from "../types";
 import { mergeBranch, pushBranch, deleteBranch, detectDefaultBranch, removeWorktree, pruneWorktrees, getDiffSummary, formatWorktreeOutcomeLine } from "../worktree";
@@ -132,13 +132,15 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
 
           // Persist merge status if we have a persisted session
           if (freshPersisted) {
-            sessionManager.updatePersistedSession(getPrimarySessionLookupRef(freshPersisted) ?? freshPersisted.harnessSessionId, {
-              worktreeMerged: true,
-              worktreeMergedAt: new Date().toISOString(),
-              pendingWorktreeDecisionSince: undefined,
-              lastWorktreeReminderAt: undefined,
-              worktreeDisposition: "merged",
-            });
+            for (const mutationRef of getPersistedMutationRefs(freshPersisted)) {
+              sessionManager.updatePersistedSession(mutationRef, {
+                worktreeMerged: true,
+                worktreeMergedAt: new Date().toISOString(),
+                pendingWorktreeDecisionSince: undefined,
+                lastWorktreeReminderAt: undefined,
+                worktreeDisposition: "merged",
+              });
+            }
           }
 
           // Send unified confirmation notification

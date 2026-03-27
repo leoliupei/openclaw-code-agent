@@ -3,7 +3,7 @@ import type { NotificationButton } from "./session-interactions";
 import type { SessionNotificationRequest } from "./wake-dispatcher";
 import type { PersistedSessionInfo } from "./types";
 import type { Session } from "./session";
-import { getBackendConversationId, getPrimarySessionLookupRef } from "./session-backend-ref";
+import { getBackendConversationId, getPersistedMutationRefs, getPrimarySessionLookupRef } from "./session-backend-ref";
 
 type RoutingProxyBuilder = (session: {
   id?: string;
@@ -63,9 +63,11 @@ export class SessionReminderService {
         );
       }
 
-      this.updatePersistedSession(getPrimarySessionLookupRef(session) ?? session.harnessSessionId, {
-        lastWorktreeReminderAt: new Date(now).toISOString(),
-      });
+      for (const mutationRef of getPersistedMutationRefs(session)) {
+        this.updatePersistedSession(mutationRef, {
+          lastWorktreeReminderAt: new Date(now).toISOString(),
+        });
+      }
     }
   }
 

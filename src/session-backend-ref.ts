@@ -26,6 +26,16 @@ export function getCompatibilityHarnessSessionId(session: SessionIdentity): stri
   return session.harnessSessionId;
 }
 
+export function getPersistedMutationRefs(session: SessionIdentity): string[] {
+  const refs = [
+    getPrimarySessionLookupRef(session),
+    getBackendConversationId(session),
+    getCompatibilityHarnessSessionId(session),
+  ].filter((ref): ref is string => Boolean(ref));
+
+  return [...new Set(refs)];
+}
+
 export function resolveHarnessName(session: { harnessName?: string; persistedHarness?: string }): string {
   return session.harnessName ?? session.persistedHarness ?? getDefaultHarnessName();
 }
