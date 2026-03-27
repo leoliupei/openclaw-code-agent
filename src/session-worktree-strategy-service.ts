@@ -30,7 +30,7 @@ export class SessionWorktreeStrategyService {
   constructor(
     private readonly deps: {
       shouldRunWorktreeStrategy: (session: Session) => boolean;
-      isAlreadyMerged: (harnessSessionId: string | undefined) => boolean;
+      isAlreadyMerged: (ref: string | undefined) => boolean;
       resolveWorktreeRepoDir: (repoDir: string | undefined, worktreePath?: string) => string | undefined;
       getWorktreeCompletionState: (
         repoDir: string,

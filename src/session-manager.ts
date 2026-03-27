@@ -122,7 +122,7 @@ export class SessionManager {
     this.worktreeMessages = new SessionWorktreeMessageService();
     this.worktreeStrategy = new SessionWorktreeStrategyService({
       shouldRunWorktreeStrategy: (session) => this.shouldRunWorktreeStrategy(session),
-      isAlreadyMerged: (harnessSessionId) => this.isAlreadyMerged(harnessSessionId),
+      isAlreadyMerged: (ref) => this.isAlreadyMerged(ref),
       resolveWorktreeRepoDir: (repoDir, worktreePath) => this.resolveWorktreeRepoDir(repoDir, worktreePath),
       getWorktreeCompletionState: (repoDir, worktreePath, branchName, baseBranch) => (
         this.getWorktreeCompletionState(repoDir, worktreePath, branchName, baseBranch)
@@ -189,7 +189,7 @@ export class SessionManager {
       getOutputPreview: (session, maxChars) => this.getOutputPreview(session, maxChars),
       originThreadLine: (session) => this.originThreadLine(session),
       debounceWaitingEvent: (sessionId) => this.debounceWaitingEvent(sessionId),
-      isAlreadyMerged: (harnessSessionId) => this.isAlreadyMerged(harnessSessionId),
+      isAlreadyMerged: (ref) => this.isAlreadyMerged(ref),
     });
     this.worktreeDecisions = new SessionWorktreeDecisionService({
       getPersistedSession: (ref) => this.store.getPersistedSession(ref),
