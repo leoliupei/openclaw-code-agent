@@ -246,4 +246,4 @@ See [REFERENCE.md](REFERENCE.md) for the operator-facing meaning of those settin
 
 The current persisted-session store is new-schema-only. On startup, any older or invalid store is archived to a timestamped `.legacy-*.json` backup and replaced with a fresh index. Legacy rows are not migrated or repaired in place.
 
-New persisted sessions must carry explicit `route` metadata, and any persisted worktree session must carry `worktreeBranch`. Runtime control flow does not reconstruct notifications from `originChannel` / `originSessionKey`, and it does not infer branch state from worktree paths.
+New persisted sessions must carry explicit `route` metadata, and any persisted worktree session must carry `worktreeBranch`. Runtime control flow treats a direct persisted route as canonical, repairs degraded notification routes from `originChannel` / `originSessionKey` when needed, and does not infer branch state from worktree paths.

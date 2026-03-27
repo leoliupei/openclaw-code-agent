@@ -222,6 +222,42 @@ describe("SessionStore path resolution", () => {
     assert.equal(persisted?.killReason, "shutdown");
   });
 
+  it("repairs degraded system routes from origin session metadata on reload", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-store-route-repair-"));
+    const indexPath = join(dir, "sessions.json");
+    writeStore(indexPath, [{
+      sessionId: "route-repair",
+      harnessSessionId: "h-route-repair",
+      name: "route-repair",
+      prompt: "p",
+      workdir: "/tmp",
+      status: "completed",
+      lifecycle: "terminal",
+      costUsd: 0,
+      originChannel: "telegram",
+      originThreadId: 13832,
+      originSessionKey: "agent:main:telegram:group:-1003863755361:topic:13832",
+      route: {
+        provider: "system",
+        target: "system",
+        sessionKey: "agent:main:telegram:group:-1003863755361:topic:13832",
+      },
+    }]);
+
+    const store = new SessionStore({
+      indexPath,
+      env: {},
+    });
+
+    const persisted = store.getPersistedSession("route-repair");
+    assert.deepEqual(persisted?.route, {
+      provider: "telegram",
+      target: "-1003863755361",
+      threadId: "13832",
+      sessionKey: "agent:main:telegram:group:-1003863755361:topic:13832",
+    });
+  });
+
   it("archives legacy array stores and starts fresh", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-store-legacy-"));
     const indexPath = join(dir, "sessions.json");

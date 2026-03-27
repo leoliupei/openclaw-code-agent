@@ -178,6 +178,34 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
     assert.deepEqual(calls[0], ["system", "event", "--text", "🚀 launched", "--mode", "now"]);
   });
 
+  it("recovers a direct Telegram notification route from degraded persisted metadata", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-degraded-route",
+      route: {
+        provider: "system",
+        target: "system",
+        sessionKey: "agent:main:telegram:group:-1003863755361:topic:11239",
+      },
+      originChannel: "telegram",
+      originSessionKey: "agent:main:telegram:group:-1003863755361:topic:11239",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "launch",
+      userMessage: "🚀 launched",
+      notifyUser: "always",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    const params = parseMessageSendArgs(calls[0] ?? []);
+    assert.equal(params.channel, "telegram");
+    assert.equal(params.target, "-1003863755361");
+    assert.equal(params["thread-id"], "11239");
+    assert.equal(params.message, "🚀 launched");
+  });
+
   it("does not install process-level signal listeners per instance", () => {
     const sigintBefore = process.listenerCount("SIGINT");
     const sigtermBefore = process.listenerCount("SIGTERM");
@@ -341,6 +369,28 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
       "--mode",
       "now",
     ]);
+  });
+
+  it("does not send a direct notify fallback when wake routing is recoverable from originSessionKey", async () => {
+    const dispatcher = new WakeDispatcher();
+    const session: FakeSession = {
+      id: "session-origin-session-key-wake",
+      route: buildRoute({ sessionKey: undefined }),
+      originSessionKey: "agent:main:telegram:group:-1003863755361:topic:11239",
+    };
+
+    dispatcher.dispatchSessionNotification(session as any, {
+      label: "waiting",
+      userMessage: "🔔 waiting",
+      wakeMessage: "Session is waiting for input.",
+      notifyUser: "on-wake-fallback",
+    });
+    const calls = await waitForCalls(logPath, 1);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.[0], "gateway");
+    const wakeParams = parseChatSendParams(calls[0] ?? []);
+    assert.equal(wakeParams.sessionKey, "agent:main:telegram:group:-1003863755361:topic:11239");
   });
 
   it("uses system event for notify-only sessions when originSessionKey is missing", async () => {

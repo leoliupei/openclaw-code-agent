@@ -10,7 +10,10 @@ import type {
   ReasoningEffort,
   SessionRoute,
 } from "./types";
-import { routeFromOriginMetadata } from "./session-route";
+import {
+  parseThreadIdFromSessionKey as parseThreadIdFromRouteSessionKey,
+  routeFromOriginMetadata,
+} from "./session-route";
 
 // -- Global MCP servers from ~/.claude.json --
 
@@ -323,7 +326,5 @@ export function resolveAgentChannel(workdir: string): string | undefined {
 
 /** Parse Telegram thread ID from sessionKey format "...:topic:THREADID". */
 export function parseThreadIdFromSessionKey(sessionKey?: string): number | undefined {
-  if (!sessionKey) return undefined;
-  const match = sessionKey.match(/:topic:(\d+)$/);
-  return match ? parseInt(match[1], 10) : undefined;
+  return parseThreadIdFromRouteSessionKey(sessionKey);
 }

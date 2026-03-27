@@ -152,6 +152,21 @@ describe("resolveSessionRoute", () => {
     );
   });
 
+  it("recovers a Telegram topic route from originSessionKey when the channel is weak", () => {
+    assert.deepEqual(
+      resolveSessionRoute({
+        messageChannel: "telegram",
+        sessionKey: "agent:main:telegram:group:-1003863755361:topic:28",
+      }),
+      {
+        provider: "telegram",
+        target: "-1003863755361",
+        threadId: "28",
+        sessionKey: "agent:main:telegram:group:-1003863755361:topic:28",
+      },
+    );
+  });
+
   it("falls back to an explicit system route when chat metadata is unavailable", () => {
     assert.deepEqual(resolveSessionRoute({}), {
       provider: "system",

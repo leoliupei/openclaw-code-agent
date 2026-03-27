@@ -221,7 +221,7 @@ export class WakeDispatcher {
     if (!wakeMessage) return;
     hooks?.onWakeStarted?.();
 
-    if (notifyUser === "on-wake-fallback" && userMessage && !session.route?.sessionKey) {
+    if (notifyUser === "on-wake-fallback" && userMessage && !this.routes.resolve(session)?.sessionKey) {
       hooks?.onNotifyStarted?.();
       this.sendUserNotification(
         session,

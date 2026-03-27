@@ -23,6 +23,7 @@ import type {
 import type { Session } from "./session";
 import { getSessionOutputFilePath } from "./session";
 import { resolveOpenclawHomeDir } from "./openclaw-paths";
+import { canonicalizeSessionRoute } from "./session-route";
 
 /**
  * Resolve persisted session index path using this precedence chain:
@@ -195,7 +196,19 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
 
   const worktreePath = toOptionalString(raw.worktreePath);
   const persistedWorktreeBranch = toOptionalString(raw.worktreeBranch);
-  const route = normalizeRoute(raw.route);
+  const originChannel = toOptionalString(raw.originChannel);
+  const originThreadId = (typeof raw.originThreadId === "string" || typeof raw.originThreadId === "number")
+    ? raw.originThreadId
+    : undefined;
+  const originSessionKey = toOptionalString(raw.originSessionKey);
+  const rawRoute = normalizeRoute(raw.route);
+  if (!rawRoute) return undefined;
+  const route = canonicalizeSessionRoute({
+    route: rawRoute,
+    originChannel,
+    originThreadId,
+    originSessionKey,
+  });
   if (!route) return undefined;
   if (worktreePath && !persistedWorktreeBranch) return undefined;
 
@@ -218,11 +231,9 @@ function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | undefined
     killReason: toOptionalKillReason(raw.killReason),
     costUsd: typeof raw.costUsd === "number" && Number.isFinite(raw.costUsd) ? raw.costUsd : 0,
     originAgentId: toOptionalString(raw.originAgentId),
-    originChannel: toOptionalString(raw.originChannel),
-    originThreadId: (typeof raw.originThreadId === "string" || typeof raw.originThreadId === "number")
-      ? raw.originThreadId
-      : undefined,
-    originSessionKey: toOptionalString(raw.originSessionKey),
+    originChannel,
+    originThreadId,
+    originSessionKey,
     route,
     outputPath: toOptionalString(raw.outputPath),
     harness: toOptionalString(raw.harness),
@@ -394,6 +405,13 @@ export class SessionStore {
   /** Persist a running-session stub so crash/restart can recover routing metadata. */
   markRunning(session: Session): void {
     if (!session.harnessSessionId) return;
+    const route = canonicalizeSessionRoute({
+      route: session.route,
+      originChannel: session.originChannel,
+      originThreadId: session.originThreadId,
+      originSessionKey: session.originSessionKey,
+    });
+    if (!route) return;
     const stub: PersistedSessionInfo = {
       sessionId: session.id,
       harnessSessionId: session.harnessSessionId,
@@ -414,7 +432,7 @@ export class SessionStore {
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
-      route: session.route,
+      route,
       harness: session.harnessName,
       currentPermissionMode: session.currentPermissionMode,
       pendingPlanApproval: session.pendingPlanApproval,
@@ -443,6 +461,13 @@ export class SessionStore {
   /** Persist terminal session metadata and write a best-effort tmp output snapshot. */
   persistTerminal(session: Session): void {
     if (!session.harnessSessionId) return;
+    const route = canonicalizeSessionRoute({
+      route: session.route,
+      originChannel: session.originChannel,
+      originThreadId: session.originThreadId,
+      originSessionKey: session.originSessionKey,
+    });
+    if (!route) return;
 
     let outputPath: string | undefined;
     try {
@@ -487,7 +512,7 @@ export class SessionStore {
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       originSessionKey: session.originSessionKey,
-      route: session.route,
+      route,
       outputPath,
       harness: session.harnessName,
       currentPermissionMode: session.currentPermissionMode,

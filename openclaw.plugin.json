@@ -104,7 +104,7 @@
       },
       "fallbackChannel": {
         "type": "string",
-        "description": "Fallback notification channel (e.g. 'telegram|123456789')"
+        "description": "Fallback notification channel. Prefer a fully routable value such as 'telegram|123456789' or 'telegram|my-bot|123456789'; a bare provider like 'telegram' is only a weak fallback."
       },
       "permissionMode": {
         "type": "string",
@@ -174,7 +174,7 @@
   "uiHints": {
     "fallbackChannel": {
       "label": "Fallback notification channel",
-      "help": "Default channel used when no workspace-specific agentChannels entry matches the session workdir.",
+      "help": "Default channel used when no workspace-specific agentChannels entry matches the session workdir. Prefer a fully routable channel string; bare providers are only weak fallbacks.",
       "placeholder": "telegram|my-bot|123456789",
       "sensitive": true
     },

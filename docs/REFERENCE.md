@@ -339,6 +339,8 @@ Tool launches resolve the origin channel in this order:
 
 Thread routing is separate from channel routing. When OpenClaw provides the originating session key or thread ID, notifications return to the exact thread or topic where the session started.
 
+Prefer fully routable channel strings in `fallbackChannel` and `agentChannels`. A bare provider such as `telegram` is treated as a weak fallback; the plugin will repair topic routing from `originSessionKey` when it can, but explicit channel targets remain the cleanest configuration.
+
 ## Notifications
 
 | Event | User Message |
@@ -370,7 +372,7 @@ Thread routing is separate from channel routing. When OpenClaw provides the orig
 
 ## Troubleshooting
 
-- No notifications: verify `fallbackChannel` or `agentChannels`, then restart the gateway.
+- No notifications: verify `fallbackChannel` or `agentChannels` use fully routable channel strings, then restart the gateway.
 - Wrong chat receives the update: check `agentChannels` longest-prefix matches and remove ambiguous path entries.
 - Worktree was not created: confirm the workdir is a git repo and there is enough free space for the worktree.
 - Push or PR failed: `agent_pr` always needs a configured remote plus `gh` installed and authenticated. `agent_merge(push=true)` also needs a configured remote. `ask` and `delegate` keep branches local until one of those explicit push paths is chosen; `auto-pr` falls back into the same explicit pending-decision state when automatic PR creation fails.

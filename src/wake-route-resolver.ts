@@ -1,4 +1,5 @@
 import type { SessionRoute } from "./types";
+import { resolveNotificationRoute } from "./session-route";
 
 export type NotificationRoute = {
   channel: string;
@@ -10,13 +11,15 @@ export type NotificationRoute = {
 
 type RoutableSession = {
   route?: SessionRoute;
+  originChannel?: string;
+  originThreadId?: string | number;
+  originSessionKey?: string;
 };
 
 export class WakeRouteResolver {
   resolve(session: RoutableSession): NotificationRoute | undefined {
-    const route = session.route;
+    const route = resolveNotificationRoute(session);
     if (!route?.provider || !route.target) return undefined;
-    if (route.provider === "system" || route.target === "system") return undefined;
     return {
       channel: route.provider,
       target: route.target,
