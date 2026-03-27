@@ -25,8 +25,6 @@ import type {
   SessionDeliveryState,
   SessionRoute,
   SessionBackendRef,
-  TurnBoundaryDecision,
-  TurnBoundaryDecisionCallback,
 } from "./types";
 import {
   getGlobalMcpServers,
@@ -43,6 +41,7 @@ import {
   type SessionControlState,
   applySessionControlPatch,
 } from "./session-state";
+import { getBranchName } from "./worktree";
 
 const OUTPUT_BUFFER_MAX = 2000;
 const STARTUP_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
@@ -207,7 +206,6 @@ export class Session extends EventEmitter {
 
   // AskUserQuestion intercept
   private readonly canUseTool?: CanUseToolCallback;
-  private readonly turnBoundaryDecision?: TurnBoundaryDecisionCallback;
 
   // Auto-respond counter
   autoRespondCount: number = 0;
@@ -232,10 +230,8 @@ export class Session extends EventEmitter {
       ? (config.codexApprovalPolicy ?? resolveApprovalPolicyForHarness(this.harness.name) ?? pluginConfig.codexApprovalPolicy)
       : undefined;
     // Keep currentPermissionMode in sync with permissionMode for all harnesses.
-    // Codex uses a first-turn planning prompt wrapper rather than a native SDK
-    // plan mode, but the session still needs to track explicit plan state so
-    // pendingPlanApproval is set at the end of the first turn and the
-    // Approve/Reject/Revise buttons fire via triggerWaitingForInputEvent.
+    // The structured backend contract still uses plugin-owned plan state so
+    // Approve/Reject/Revise buttons fire consistently across backends.
     this.currentPermissionMode = this.permissionMode;
     this.originChannel = config.originChannel;
     this.originThreadId = config.originThreadId;
@@ -252,7 +248,6 @@ export class Session extends EventEmitter {
       this.worktreePrTargetRepo = config.worktreePrTargetRepo;
     }
     this.canUseTool = config.canUseTool;
-    this.turnBoundaryDecision = config.turnBoundaryDecision;
     this.startedAt = Date.now();
     this.abortController = new AbortController();
     this.applyControlEvent({ type: "initialize", hasWorktree: !!(this.worktreeStrategy && this.worktreeStrategy !== "off") });
@@ -320,10 +315,6 @@ export class Session extends EventEmitter {
     this.applyControlEvent({ type: "input.requested" });
   }
 
-  markPendingPlanApprovalFromClassifier(context: PlanApprovalContext): void {
-    this.markPendingPlanApproval(context);
-  }
-
   // -- Lifecycle --
 
   /** Launch the configured harness and start consuming harness messages. */
@@ -351,6 +342,9 @@ export class Session extends EventEmitter {
         allowedTools: this.allowedTools,
         resumeSessionId: this.resumeSessionId,
         forkSession: this.forkSession,
+        backendRef: this.backendRef,
+        worktreeStrategy: this.worktreeStrategy,
+        originalWorkdir: this.originalWorkdir ?? this.workdir,
         abortController: this.abortController,
         mcpServers: getGlobalMcpServers(),
         canUseTool: this.canUseTool,
@@ -563,17 +557,17 @@ export class Session extends EventEmitter {
 
       this.resetIdleTimer();
 
-      if (msg.type === "backend_ref" || msg.type === "init") {
+      if (msg.type === "backend_ref") {
         this.clearTimer("startup");
-        if (msg.type === "backend_ref") {
-          this.backendRef = { ...msg.ref };
-          this.harnessSessionId = msg.ref.conversationId;
-        } else {
-          this.harnessSessionId = msg.session_id;
-          this.backendRef = this.backendRef ?? {
-            kind: this.harnessName === "codex" ? "codex-app-server" : "claude-code",
-            conversationId: msg.session_id,
-          };
+        this.backendRef = { ...msg.ref };
+        this.harnessSessionId = msg.ref.conversationId;
+        if (msg.ref.worktreePath) {
+          this.worktreePath = msg.ref.worktreePath;
+          this.originalWorkdir ??= this.workdir;
+          this.worktreeBranch ??= getBranchName(msg.ref.worktreePath);
+          if (this.worktreeStrategy && this.worktreeStrategy !== "off") {
+            this.applyControlEvent({ type: "worktree.state_set", worktreeState: "provisioned" });
+          }
         }
         if (this._status === "starting") {
           this.transition("running");
@@ -582,8 +576,8 @@ export class Session extends EventEmitter {
         if (msg.runId && this.backendRef) {
           this.backendRef = { ...this.backendRef, runId: msg.runId };
         }
-      } else if (msg.type === "text_delta" || msg.type === "text") {
-        const text = msg.type === "text_delta" ? msg.text : msg.text;
+      } else if (msg.type === "text_delta") {
+        const text = msg.text;
         this.waitingForInputFired = false;
         // Don't reset lastTurnHadQuestion if we already detected a plan
         // approval tool — pendingPlanApproval is the authoritative flag.
@@ -601,9 +595,9 @@ export class Session extends EventEmitter {
           // best-effort; don't let disk errors interrupt the session
         }
         this.emit("output", this, text);
-      } else if (msg.type === "tool_call" || msg.type === "tool_use") {
-        const name = msg.type === "tool_call" ? msg.name : msg.name;
-        const input = msg.type === "tool_call" ? msg.input : msg.input;
+      } else if (msg.type === "tool_call") {
+        const name = msg.name;
+        const input = msg.input;
         // Track plan file writes so agent_output can surface the plan content.
         if (name === "Write") {
           const writeInput = input as Record<string, unknown>;
@@ -611,17 +605,15 @@ export class Session extends EventEmitter {
             this.planFilePath = writeInput.file_path;
           }
         }
-        if (msg.type === "tool_use") {
-          if (name === "AskUserQuestion") {
-            this.lastTurnHadQuestion = true;
-            this.applyControlEvent({ type: "input.requested" });
-            if ((this.currentPermissionMode === "plan" || this.permissionMode === "plan") && !this.planModeApproved) {
-              this.markPendingPlanApproval("plan-mode");
-            }
-          } else if ((name === "ExitPlanMode" || name === "set_permission_mode") && !this.planModeApproved) {
-            this.lastTurnHadQuestion = true;
+        if (name === "AskUserQuestion") {
+          this.lastTurnHadQuestion = true;
+          this.applyControlEvent({ type: "input.requested" });
+          if ((this.currentPermissionMode === "plan" || this.permissionMode === "plan") && !this.planModeApproved) {
             this.markPendingPlanApproval("plan-mode");
           }
+        } else if ((name === "ExitPlanMode" || name === "set_permission_mode") && !this.planModeApproved) {
+          this.lastTurnHadQuestion = true;
+          this.markPendingPlanApproval("plan-mode");
         }
         this.emit("toolUse", this, name, input);
       } else if (msg.type === "pending_input") {
@@ -654,11 +646,11 @@ export class Session extends EventEmitter {
             this.emit("output", this, markdown);
           }
         }
-      } else if (msg.type === "settings_changed" || msg.type === "permission_mode_change") {
+      } else if (msg.type === "settings_changed") {
         // Defensive: SDK does not currently emit this event (see docs/internal/PLAN-MODE-INVESTIGATION.md).
         // Kept for forward-compatibility if future SDK versions emit system/status permissionMode changes.
         const oldMode = this.currentPermissionMode;
-        const permissionMode = msg.type === "settings_changed" ? msg.permissionMode : msg.mode;
+        const permissionMode = msg.permissionMode;
         if (permissionMode) {
           this.currentPermissionMode = permissionMode as PermissionMode;
         }
@@ -666,7 +658,7 @@ export class Session extends EventEmitter {
           this.markPendingPlanApproval("plan-mode");
           this.lastTurnHadQuestion = true;
         }
-      } else if (msg.type === "run_completed" || msg.type === "result") {
+      } else if (msg.type === "run_completed") {
         const data = msg.data;
         this.result = {
           subtype: data.success ? "success" : "error",
@@ -711,30 +703,13 @@ export class Session extends EventEmitter {
             // Follow-up user messages were queued during this turn; keep the
             // session alive so the harness can consume them on the next turn.
           } else if (!needsInput) {
-            const semanticDecision = await this.resolveTurnBoundaryDecision(this.currentTurnText);
-            if (semanticDecision === "awaiting_plan_decision") {
-              const planContext: PlanApprovalContext =
-                this.currentPermissionMode === "plan" || this.permissionMode === "plan"
-                  ? "plan-mode"
-                  : "codex-first-turn-plan";
-              this.markPendingPlanApproval(planContext);
-              this.lastTurnHadQuestion = true;
-              this.waitingForInputFired = true;
-              this.emit("turnEnd", this, true);
-            } else if (semanticDecision === "awaiting_user_input") {
-              this.lastTurnHadQuestion = true;
-              this.waitingForInputFired = true;
-              this.applyControlEvent({ type: "input.requested" });
-              this.emit("turnEnd", this, true);
-            } else {
-              this.applyControlEvent({ type: "terminal.entered" });
-              this.emit("turnEnd", this, false);
-              // `complete("done")` means "natural turn completion with no user
-              // input needed". This is intentionally different from `kill("done")`:
-              // completion emits the success lifecycle path and avoids killed/failure
-              // terminal handling noise.
-              this.complete("done");
-            }
+            this.applyControlEvent({ type: "terminal.entered" });
+            this.emit("turnEnd", this, false);
+            // `complete("done")` means "natural turn completion with no user
+            // input needed". This is intentionally different from `kill("done")`:
+            // completion emits the success lifecycle path and avoids killed/failure
+            // terminal handling noise.
+            this.complete("done");
           }
         } else {
           this.turnInProgress = false;
@@ -747,26 +722,6 @@ export class Session extends EventEmitter {
       } else if (msg.type === "activity") {
         // Keepalive ping for long-running subprocesses with no output.
       }
-    }
-  }
-
-  private async resolveTurnBoundaryDecision(turnText: string): Promise<TurnBoundaryDecision> {
-    if (!this.turnBoundaryDecision) return "complete";
-    try {
-      return await this.turnBoundaryDecision({
-        sessionId: this.id,
-        sessionName: this.name,
-        prompt: this.prompt,
-        workdir: this.workdir,
-        harnessName: this.harnessName,
-        permissionMode: this.permissionMode,
-        currentPermissionMode: this.currentPermissionMode,
-        originAgentId: this.originAgentId,
-        turnText,
-      });
-    } catch (err) {
-      console.warn(`[Session ${this.id}] turnBoundaryDecision failed: ${errorMessage(err)}`);
-      return "complete";
     }
   }
 

@@ -245,7 +245,7 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
       system_prompt: Type.Optional(Type.String({ description: "Additional system prompt" })),
       allowed_tools: Type.Optional(Type.Array(Type.String(), { description: "List of allowed tools" })),
       resume_session_id: Type.Optional(
-        Type.String({ description: "Session ID to resume (from a previous session's harnessSessionId). Continues the conversation from where it left off." }),
+        Type.String({ description: "Session reference to continue or fork from. Prefer the plugin session ID shown by agent_launch or agent_sessions; persisted backend conversation IDs also resolve when available." }),
       ),
       fork_session: Type.Optional(
         Type.Boolean({ description: "When resuming, fork to a new session instead of continuing the existing one. Use with resume_session_id." }),

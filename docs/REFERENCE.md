@@ -86,7 +86,7 @@ Allowed-model matching is case-insensitive substring matching. If the resolved m
 | `plan` | Present the plan first, then wait for approval before implementation |
 | `bypassPermissions` | Fully autonomous execution |
 
-`plan` is the plugin default. Claude Code uses true SDK plan mode. Codex uses a plan-first turn while the plugin preserves the same approval workflow.
+`plan` is the plugin default. Claude Code and Codex both feed the same plugin-owned approval workflow; Codex now supplies structured plan artifacts through the App Server backend instead of relying on text-shape inference.
 
 ### `planApproval`
 
@@ -154,7 +154,7 @@ Launch a background coding session.
 | `model` | `string` | No | Defaults to the selected harness default model |
 | `system_prompt` | `string` | No | Extra system prompt |
 | `allowed_tools` | `string[]` | No | Harness tool allowlist |
-| `resume_session_id` | `string` | No | Resume by internal ID, name, or harness session ID; linked resumable sessions are preferred over creating a duplicate fresh launch |
+| `resume_session_id` | `string` | No | Resume by plugin session ID, name, or persisted backend conversation ID; linked resumable sessions are preferred over creating a duplicate fresh launch |
 | `fork_session` | `boolean` | No | Fork instead of continuing when resuming |
 | `permission_mode` | `default \| plan \| bypassPermissions` | No | Defaults to plugin `permissionMode` |
 | `harness` | `string` | No | Defaults to `defaultHarness` |

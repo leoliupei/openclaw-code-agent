@@ -5,13 +5,45 @@
 import type { AgentHarness, HarnessSession, HarnessMessage, HarnessLaunchOptions } from "../src/harness/types";
 import type { SessionConfig } from "../src/types";
 
+type LegacyHarnessMessage =
+  | { type: "init"; session_id: string }
+  | { type: "text"; text: string }
+  | { type: "tool_use"; name: string; input: unknown }
+  | { type: "permission_mode_change"; mode: string }
+  | { type: "result"; data: Extract<HarnessMessage, { type: "run_completed" }>["data"] };
+
+type TestHarnessMessage = HarnessMessage | LegacyHarnessMessage;
+
+function normalizeHarnessMessage(message: TestHarnessMessage): HarnessMessage {
+  switch (message.type) {
+    case "init":
+      return {
+        type: "backend_ref",
+        ref: {
+          kind: "claude-code",
+          conversationId: message.session_id,
+        },
+      };
+    case "text":
+      return { type: "text_delta", text: message.text };
+    case "tool_use":
+      return { type: "tool_call", name: message.name, input: message.input };
+    case "permission_mode_change":
+      return { type: "settings_changed", permissionMode: message.mode };
+    case "result":
+      return { type: "run_completed", data: message.data };
+    default:
+      return message;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Fake harness — implements AgentHarness without the Claude SDK
 // ---------------------------------------------------------------------------
 
 export interface FakeHarness extends AgentHarness {
   lastLaunchOptions: HarnessLaunchOptions | undefined;
-  pushMessage: (msg: HarnessMessage) => void;
+  pushMessage: (msg: TestHarnessMessage) => void;
   endMessages: () => void;
   lastSetPermissionMode: string | undefined;
   lastStreamInput: AsyncIterable<any> | undefined;
@@ -36,7 +68,6 @@ export function createFakeHarness(
       nativePendingInput: false,
       nativePlanArtifacts: false,
       worktrees: "plugin-managed",
-      nativeWorktreeRestore: false,
     },
     lastLaunchOptions: undefined,
     lastSetPermissionMode: undefined,
@@ -50,7 +81,7 @@ export function createFakeHarness(
       }
     },
 
-    pushMessage(msg: HarnessMessage) { pushMessage(msg); },
+    pushMessage(msg: TestHarnessMessage) { pushMessage(normalizeHarnessMessage(msg)); },
     endMessages() { endMessages(); },
 
     launch(options: HarnessLaunchOptions): HarnessSession {

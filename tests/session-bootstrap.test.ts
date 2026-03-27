@@ -71,4 +71,103 @@ describe("prepareSessionBootstrap()", () => {
       rmSync(repoDir, { recursive: true, force: true });
     }
   });
+
+  it("keeps fresh Codex worktree launches on the original repo and lets the backend allocate the native worktree", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "session-bootstrap-codex-native-"));
+    try {
+      git(repoDir, "init", "-b", "main");
+      git(repoDir, "config", "user.name", "Test User");
+      git(repoDir, "config", "user.email", "test@example.com");
+      writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+      git(repoDir, "add", "README.md");
+      git(repoDir, "commit", "-m", "init");
+
+      const config: SessionConfig = {
+        prompt: "Implement the fix",
+        workdir: repoDir,
+        harness: "codex",
+        worktreeStrategy: "ask",
+        multiTurn: true,
+        route: {
+          provider: "telegram",
+          target: "12345",
+          sessionKey: "agent:main:telegram:group:12345",
+        },
+      };
+
+      const bootstrap = prepareSessionBootstrap(config, "codex-native", () => undefined);
+
+      assert.equal(bootstrap.actualWorkdir, repoDir);
+      assert.equal(bootstrap.originalWorkdir, repoDir);
+      assert.equal(bootstrap.worktreePath, undefined);
+      assert.equal(bootstrap.worktreeBranchName, undefined);
+      assert.equal(bootstrap.effectiveSystemPrompt, config.systemPrompt);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not recreate missing native Codex worktrees during resume bootstrap", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "session-bootstrap-codex-resume-"));
+    const missingWorktreePath = join(repoDir, ".codex", "worktrees", "abcd", "openclaw");
+    try {
+      git(repoDir, "init", "-b", "main");
+      git(repoDir, "config", "user.name", "Test User");
+      git(repoDir, "config", "user.email", "test@example.com");
+      writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+      git(repoDir, "add", "README.md");
+      git(repoDir, "commit", "-m", "init");
+
+      const config: SessionConfig = {
+        prompt: "Resume the Codex session",
+        workdir: repoDir,
+        harness: "codex",
+        resumeSessionId: "thread-1",
+        worktreeStrategy: "ask",
+        multiTurn: true,
+        route: {
+          provider: "telegram",
+          target: "12345",
+          sessionKey: "agent:main:telegram:group:12345",
+        },
+      };
+
+      const bootstrap = prepareSessionBootstrap(
+        config,
+        "codex-native-resume",
+        (_ref): PersistedSessionInfo | undefined => ({
+          sessionId: "session-1",
+          harnessSessionId: "thread-1",
+          backendRef: {
+            kind: "codex-app-server",
+            conversationId: "thread-1",
+            worktreeId: "abcd",
+            worktreePath: missingWorktreePath,
+          },
+          name: "codex-native-resume",
+          prompt: "Resume the Codex session",
+          workdir: repoDir,
+          status: "killed",
+          lifecycle: "suspended",
+          runtimeState: "stopped",
+          costUsd: 0,
+          route: {
+            provider: "telegram",
+            target: "12345",
+            sessionKey: "agent:main:telegram:group:12345",
+          },
+          worktreePath: missingWorktreePath,
+          worktreeBranch: "agent/codex-native-resume",
+          worktreeStrategy: "ask",
+        }),
+      );
+
+      assert.equal(bootstrap.actualWorkdir, repoDir);
+      assert.equal(bootstrap.originalWorkdir, repoDir);
+      assert.equal(bootstrap.worktreePath, undefined);
+      assert.equal(bootstrap.worktreeBranchName, "agent/codex-native-resume");
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
 });

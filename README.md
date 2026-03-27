@@ -7,11 +7,11 @@
 `openclaw-code-agent` is the OpenClaw plugin for running Claude Code and Codex as managed background coding sessions from chat. Launch work from Telegram, Discord, or any OpenClaw-supported channel, review the plan before execution, keep the job isolated in its own git worktree, and merge or open a PR without leaving the thread.
 
 - **Plan -> Review -> Execute**. `plan` is the default launch mode, with `ask`, `delegate`, and `approve` deciding how much plan approval autonomy the orchestrator gets.
-- **Worktree isolation by default**. New sessions default to `ask`, which creates a clean worktree and `agent/*` branch instead of contaminating your main checkout.
+- **Worktree isolation by default**. New sessions default to `ask`, which keeps coding work isolated in a worktree-backed branch instead of contaminating your main checkout.
 - **State-driven decision UX**. `ask` sends explicit action buttons for **Merge locally**, **Create PR**, **Decide later**, and **Dismiss**. The same action-token model now backs both Telegram and Discord interactive callbacks.
 - **Full session lifecycle**. Suspend, resume, fork, interrupt, and recover sessions across restarts with persisted metadata and output.
 - **Real operator visibility**. `agent_sessions`, `agent_output`, and `agent_stats` show status, buffered output, duration, and USD cost.
-- **Two harnesses, one control plane**. Claude Code and Codex share the same tools, routing, notification pipeline, and worktree model.
+- **Two harnesses, one control plane**. Claude Code and Codex share the same tools, routing, notification pipeline, and worktree strategy model while each backend uses its own native execution substrate.
 
 Need the version-pinned ACP breakdown? See [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md).
 
@@ -23,7 +23,7 @@ Need the version-pinned ACP breakdown? See [docs/ACP-COMPARISON.md](docs/ACP-COM
 
 ### Plan First
 
-The differentiator is the plan-review loop. Claude Code exposes true plan mode. Codex uses a plan-first turn while the plugin keeps the same external workflow: review the plan, revise if needed, then approve with `agent_respond(..., approve=true)`.
+The differentiator is the plan-review loop. Claude Code and Codex both feed the same review UX now: the plugin receives a structured plan artifact, keeps execution blocked until approval, and resumes the same session with `agent_respond(..., approve=true)`.
 
 <img src="assets/ask-readme.gif" alt="Plan review in ask mode with inline approval controls">
 
@@ -113,6 +113,7 @@ Prefer fully routable channel strings such as `telegram|123456789` or `telegram|
 `3.5.0` is a maintenance release focused on reliability, explicit session state, and release-tooling hardening.
 
 - Upgrading archives old or invalid persisted session stores to a timestamped `.legacy-*.json` backup and starts with a fresh index.
+- Legacy Codex SDK session entries are archived and not loaded by the App Server backend.
 - Contributors and release automation should use `pnpm verify` as the canonical validation gate.
 
 ## Tool Surface

@@ -53,16 +53,16 @@ export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "shutdown
 /** Unified permission modes exposed by tools/commands across harnesses. */
 export type PermissionMode = "default" | "plan" | "bypassPermissions";
 /**
- * `plan-mode` is the native structured plan gate for harnesses that support it directly.
- * `codex-first-turn-plan` is the Codex-only first-turn planning gate inferred by the
- * bounded semantic adapter before implementation begins.
+ * `plan-mode` is the canonical persisted plan-review context for all harnesses.
+ * Legacy values like `soft-plan` and `codex-first-turn-plan` are normalized back
+ * to `plan-mode` on read so new writes only use one explicit value.
  */
-export type PlanApprovalContext = "plan-mode" | "codex-first-turn-plan";
+export type PlanApprovalContext = "plan-mode";
 export type WorktreeStrategy = "off" | "manual" | "ask" | "delegate" | "auto-merge" | "auto-pr";
 export type CodexApprovalPolicy = "never" | "on-request";
 export type ReasoningEffort = "low" | "medium" | "high";
 export type SessionBackendKind = "claude-code" | "codex-app-server";
-export type BackendWorktreeCapability = "plugin-managed" | "native";
+export type BackendWorktreeCapability = "plugin-managed" | "native-execution" | "native-restore";
 
 export interface SessionBackendRef {
   kind: SessionBackendKind;
@@ -76,7 +76,6 @@ export interface BackendCapabilityFlags {
   nativePendingInput: boolean;
   nativePlanArtifacts: boolean;
   worktrees: BackendWorktreeCapability;
-  nativeWorktreeRestore: boolean;
 }
 
 export type PendingInputDecision =
@@ -142,27 +141,6 @@ export type SessionActionKind =
   | "session-restart"
   | "view-output"
   | "question-answer";
-
-export type TurnBoundaryDecision =
-  | "complete"
-  | "awaiting_user_input"
-  | "awaiting_plan_decision";
-
-export interface TurnBoundaryDecisionContext {
-  sessionId: string;
-  sessionName: string;
-  prompt: string;
-  workdir: string;
-  harnessName: string;
-  permissionMode: PermissionMode;
-  currentPermissionMode: PermissionMode;
-  originAgentId?: string;
-  turnText: string;
-}
-
-export type TurnBoundaryDecisionCallback = (
-  context: TurnBoundaryDecisionContext,
-) => Promise<TurnBoundaryDecision>;
 
 export interface SessionRoute {
   provider?: string;
@@ -235,8 +213,6 @@ export interface SessionConfig {
   worktreePrTargetRepo?: string;
   /** Optional tool-intercept callback (CC sessions only). Used for AskUserQuestion intercept. */
   canUseTool?: CanUseToolCallback;
-  /** Optional semantic turn-boundary classifier used to decide whether a turn should wait for input instead of completing. */
-  turnBoundaryDecision?: TurnBoundaryDecisionCallback;
   /** Explicit backend ref when reconstructing a persisted session against a native backend conversation. */
   backendRef?: SessionBackendRef;
 }

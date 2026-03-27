@@ -68,8 +68,9 @@ function toOptionalPlanApprovalMode(value: unknown): PlanApprovalMode | undefine
 }
 
 function toOptionalPlanApprovalContext(value: unknown): PlanApprovalContext | undefined {
-  if (value === "plan-mode" || value === "codex-first-turn-plan") return value;
-  if (value === "soft-plan") return "codex-first-turn-plan";
+  if (value === "plan-mode" || value === "codex-first-turn-plan" || value === "soft-plan") {
+    return "plan-mode";
+  }
   return undefined;
 }
 

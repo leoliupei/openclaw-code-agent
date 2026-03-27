@@ -76,12 +76,12 @@ Key behavior:
 `src/harness/types.ts` defines the `AgentHarness` interface. The built-in harnesses are:
 
 - `claude-code`: native Claude Code harness with plan-mode and `AskUserQuestion` interception
-- `codex`: native Codex App Server harness with structured pending input, structured plan artifacts, `reasoningEffort`, and `approvalPolicy`
+- `codex`: native Codex App Server harness with structured pending input, structured plan artifacts, backend refs, and native worktree thread state
 
 Important mapping detail:
 
 - Claude Code maps plugin `permissionMode` directly to the SDK modes.
-- Codex runs through the Codex App Server transport. Plugin `plan` mode remains a plugin-owned approval workflow even when the backend exposes structured plan artifacts.
+- Codex runs through the Codex App Server transport. Plugin `plan` mode remains a plugin-owned approval workflow even when the backend exposes structured plan artifacts, and plugin worktree strategy stays policy-only above Codex-native worktree execution.
 
 ### `WakeDispatcher`
 
@@ -131,7 +131,7 @@ agent_launch / /agent
   -> resolve model, harness, origin channel, origin thread
   -> resolve resume/fork metadata if present
   -> decide effective worktree strategy
-  -> create worktree if required
+  -> create plugin-managed worktree only when the selected backend requires it
   -> SessionManager.spawn()
   -> Session starts streaming output
 ```
@@ -165,9 +165,9 @@ When a session completes with worktree metadata:
 ### Resume, Redirect, And Recovery
 
 - `agent_respond(..., interrupt=true)` aborts the current turn in place and sends a redirect notification
-- only explicitly suspended sessions are resumable through `agent_respond`
+- `agent_respond` is the only continuation primitive for active and explicitly suspended sessions
 - sessions found in `running` state during startup recovery are normalized into resumable persisted entries instead of being implicitly restarted
-- persisted Codex resume state is treated more conservatively after restart because thread reuse is brittle across auth and process boundaries
+- persisted Codex resume state is restored through the backend thread ref, not through SDK-era harness session guessing
 
 ## Persistence Model
 
@@ -182,10 +182,10 @@ Path precedence:
 Stored data includes:
 
 - internal ID and name
-- harness and model
+- harness, model, and backend ref
 - workdir and worktree metadata
 - origin routing metadata
-- harness session ID
+- backend conversation ID
 - output stubs and persisted stream references
 
 ## Notification Pipeline
@@ -201,9 +201,9 @@ The design goal is deterministic wakes with the fewest possible duplicate pings.
 
 ## Worktree Internals
 
-`src/worktree.ts` handles:
+`src/worktree.ts` handles the plugin-owned worktree policy layer:
 
-- isolated worktree creation under `.worktrees` or `OPENCLAW_WORKTREE_DIR`
+- isolated plugin-managed worktree creation under `.worktrees` or `OPENCLAW_WORKTREE_DIR`
 - branch naming and collision handling
 - default branch detection
 - merge and squash paths
@@ -214,6 +214,7 @@ The design goal is deterministic wakes with the fewest possible duplicate pings.
 Important constraints:
 
 - worktree creation only happens for git repos
+- Codex can execute inside a native backend-managed worktree while the plugin still owns ask/delegate/auto-merge/auto-pr policy above it
 - push and PR flows need a configured remote
 - the main checkout is not modified during isolated worktree execution
 
@@ -224,7 +225,7 @@ Important constraints:
 3. `Session` is an event emitter, not a callback bucket. This keeps the lifecycle model explicit.
 4. Runtime GC and persisted resume are separate concerns. Eviction from memory does not mean losing the session.
 5. Worktree decisions are first-class orchestration states, not afterthoughts bolted on after completion.
-6. Codex and Claude Code share the same control plane even though their SDK semantics differ.
+6. Codex and Claude Code share the same session-centric control plane even though their backend transports differ.
 
 ## Config Touchpoints
 

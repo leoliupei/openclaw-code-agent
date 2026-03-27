@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync } from "fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import type { PersistedSessionInfo } from "../src/types";
@@ -13,6 +14,10 @@ const DEFAULT_ROUTE = {
   threadId: "42",
   sessionKey: "agent:main:telegram:group:12345:topic:42",
 };
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf-8" }).trim();
+}
 
 describe("SessionRestoreService", () => {
   it("prepares and hydrates resumed worktree sessions from persisted metadata", () => {
@@ -67,6 +72,42 @@ describe("SessionRestoreService", () => {
     assert.equal(liveSession.originalWorkdir, repoDir);
     assert.equal(liveSession.worktreeBranch, "agent/resume-target");
     assert.equal(liveSession.worktreeState, "provisioned");
+    assert.equal(liveSession.worktreePrTargetRepo, "openclaw/openclaw");
+  });
+
+  it("preserves originalWorkdir for native Codex worktree strategies before the backend reports the worktree path", () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "session-restore-native-codex-"));
+    git(repoDir, "init", "-b", "main");
+    git(repoDir, "config", "user.name", "Test User");
+    git(repoDir, "config", "user.email", "test@example.com");
+    writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+    git(repoDir, "add", "README.md");
+    git(repoDir, "commit", "-m", "init");
+    const service = new SessionRestoreService(() => undefined);
+    const config = {
+      prompt: "Implement the fix",
+      workdir: repoDir,
+      harness: "codex",
+      worktreeStrategy: "ask",
+      worktreePrTargetRepo: "openclaw/openclaw",
+    };
+
+    const prepared = service.prepareSpawn(config, "codex-native");
+    const liveSession = {
+      worktreePath: undefined,
+      originalWorkdir: undefined,
+      worktreeBranch: undefined,
+      worktreeState: "none",
+      worktreePrTargetRepo: undefined,
+    } as any;
+
+    service.hydrateSpawnedSession(liveSession, prepared, config);
+
+    assert.equal(prepared.actualWorkdir, repoDir);
+    assert.equal(prepared.worktreePath, undefined);
+    assert.equal(liveSession.originalWorkdir, repoDir);
+    assert.equal(liveSession.worktreePath, undefined);
+    assert.equal(liveSession.worktreeState, "none");
     assert.equal(liveSession.worktreePrTargetRepo, "openclaw/openclaw");
   });
 });

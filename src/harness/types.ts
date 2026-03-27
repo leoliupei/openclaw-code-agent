@@ -12,8 +12,9 @@ import type {
   PendingInputState,
   PlanArtifact,
   ReasoningEffort,
-  SessionBackendKind,
   SessionBackendRef,
+  SessionBackendKind,
+  WorktreeStrategy,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -39,13 +40,7 @@ export type HarnessMessage =
   | { type: "pending_input_resolved"; requestId?: string }
   | { type: "plan_artifact"; artifact: PlanArtifact; finalized: boolean }
   | { type: "settings_changed"; permissionMode?: string }
-  | { type: "run_completed"; data: HarnessResult }
-  // Deprecated compatibility aliases retained for tests/fakes during the transition.
-  | { type: "init"; session_id: string }
-  | { type: "text"; text: string }
-  | { type: "tool_use"; name: string; input: unknown }
-  | { type: "permission_mode_change"; mode: string }
-  | { type: "result"; data: HarnessResult };
+  | { type: "run_completed"; data: HarnessResult };
 
 // ---------------------------------------------------------------------------
 // Launch options
@@ -67,6 +62,9 @@ export interface HarnessLaunchOptions {
   allowedTools?: string[];
   resumeSessionId?: string;
   forkSession?: boolean;
+  backendRef?: SessionBackendRef;
+  worktreeStrategy?: WorktreeStrategy;
+  originalWorkdir?: string;
   abortController?: AbortController;
   mcpServers?: McpServerConfig;
   /** Optional tool-intercept callback (CC sessions only). */

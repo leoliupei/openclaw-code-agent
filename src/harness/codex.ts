@@ -321,6 +321,28 @@ function extractIds(value: unknown): {
   };
 }
 
+function extractThreadState(value: unknown): { threadId?: string; cwd?: string } {
+  const ids = extractIds(value);
+  return {
+    threadId: ids.threadId,
+    cwd: firstNestedString(value, ["cwd", "workdir", "directory"]),
+  };
+}
+
+function isNativeCodexWorktreePath(value: string | undefined): boolean {
+  const trimmed = value?.trim();
+  return Boolean(trimmed && /[/\\]worktrees[/\\][^/\\]+[/\\][^/\\]+/.test(trimmed));
+}
+
+function deriveWorktreeIdFromPath(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  const parts = trimmed.split(/[/\\]+/).filter(Boolean);
+  const worktreesIndex = parts.lastIndexOf("worktrees");
+  if (worktreesIndex < 0 || worktreesIndex + 1 >= parts.length) return undefined;
+  return parts[worktreesIndex + 1];
+}
+
 function extractAssistantItemId(value: unknown): string | undefined {
   const record = asRecord(value);
   if (!record) return undefined;
@@ -673,8 +695,7 @@ export class CodexHarness implements AgentHarness {
   readonly capabilities = {
     nativePendingInput: true,
     nativePlanArtifacts: true,
-    worktrees: "plugin-managed",
-    nativeWorktreeRestore: false,
+    worktrees: "native-restore",
   } as const;
 
   constructor(private readonly deps: CodexHarnessDeps = {}) {}
@@ -699,6 +720,8 @@ export class CodexHarness implements AgentHarness {
     let queueDone = false;
     let threadId = options.resumeSessionId;
     let turnId: string | undefined;
+    let backendWorktreePath = options.backendRef?.worktreePath;
+    let backendWorktreeId = options.backendRef?.worktreeId;
     let currentPermissionMode = options.permissionMode ?? "default";
     let currentPendingInput: CodexPendingInput | undefined;
     let runCounter = 0;
@@ -731,6 +754,18 @@ export class CodexHarness implements AgentHarness {
       flushResolve();
     };
 
+    const updateBackendWorktree = (candidatePath: string | undefined): void => {
+      const trimmed = candidatePath?.trim();
+      if (!trimmed) return;
+      const originalWorkdir = options.originalWorkdir?.trim() || options.cwd.trim();
+      const worktreesEnabled = !!options.worktreeStrategy && options.worktreeStrategy !== "off";
+      if (!worktreesEnabled) return;
+      if (trimmed === originalWorkdir) return;
+      if (!isNativeCodexWorktreePath(trimmed)) return;
+      backendWorktreePath = trimmed;
+      backendWorktreeId = deriveWorktreeIdFromPath(trimmed);
+    };
+
     const emitBackendRef = (): void => {
       if (!threadId) return;
       enqueue({
@@ -739,6 +774,8 @@ export class CodexHarness implements AgentHarness {
           kind: "codex-app-server",
           conversationId: threadId,
           ...(turnId ? { runId: turnId } : {}),
+          ...(backendWorktreeId ? { worktreeId: backendWorktreeId } : {}),
+          ...(backendWorktreePath ? { worktreePath: backendWorktreePath } : {}),
         },
       });
     };
@@ -746,13 +783,17 @@ export class CodexHarness implements AgentHarness {
     client.setNotificationHandler(async (method, params) => {
       const methodLower = method.trim().toLowerCase();
       const ids = extractIds(params);
+      const threadState = extractThreadState(params);
       if (ids.threadId && threadId && ids.threadId !== threadId) return;
       if (ids.threadId) {
         threadId = ids.threadId;
-        emitBackendRef();
       }
       if (ids.runId) {
         turnId = ids.runId;
+      }
+      updateBackendWorktree(threadState.cwd);
+      if (ids.threadId || ids.runId || threadState.cwd) {
+        emitBackendRef();
       }
 
       if (methodLower === "serverrequest/resolved") {
@@ -823,15 +864,19 @@ export class CodexHarness implements AgentHarness {
       }
 
       const ids = extractIds(params);
+      const threadState = extractThreadState(params);
       if (ids.threadId && threadId && ids.threadId !== threadId) {
         return {};
       }
       if (ids.threadId) {
         threadId = ids.threadId;
-        emitBackendRef();
       }
       if (ids.runId) {
         turnId = ids.runId;
+      }
+      updateBackendWorktree(threadState.cwd);
+      if (ids.threadId || ids.runId || threadState.cwd) {
+        emitBackendRef();
       }
 
       const requestId = ids.requestId ?? `${threadId ?? "codex"}-${Date.now().toString(36)}`;
@@ -874,13 +919,14 @@ export class CodexHarness implements AgentHarness {
             threadId,
             model: options.model,
             reasoningEffort: options.reasoningEffort,
-            cwd: options.cwd,
             approvalPolicy: approvalPolicyForMode(currentPermissionMode, options.codexApprovalPolicy),
             sandbox: sandboxForMode(currentPermissionMode),
           }),
           timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
         });
-        threadId = extractIds(resumed).threadId ?? threadId;
+        const state = extractThreadState(resumed);
+        threadId = state.threadId ?? threadId;
+        updateBackendWorktree(state.cwd);
         emitBackendRef();
         return;
       }
@@ -888,13 +934,18 @@ export class CodexHarness implements AgentHarness {
       const started = await requestWithFallbacks({
         client,
         methods: ["thread/start", "thread/new"],
-        payloads: buildThreadStartPayloads({ cwd: options.cwd, model: options.model }),
+        payloads: buildThreadStartPayloads({
+          cwd: options.originalWorkdir?.trim() || options.cwd,
+          model: options.model,
+        }),
         timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
-      threadId = extractIds(started).threadId;
+      const state = extractThreadState(started);
+      threadId = state.threadId;
       if (!threadId) {
         throw new Error("Codex App Server did not return a thread id.");
       }
+      updateBackendWorktree(state.cwd);
       emitBackendRef();
     };
 

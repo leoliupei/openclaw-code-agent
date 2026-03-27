@@ -1,5 +1,5 @@
 import { existsSync } from "fs";
-import { pluginConfig } from "./config";
+import { getDefaultHarnessName, pluginConfig } from "./config";
 import { pathsReferToSameLocation } from "./path-utils";
 import type { PersistedSessionInfo, SessionConfig } from "./types";
 import {
@@ -21,6 +21,12 @@ type Preparation = {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function prefersNativeCodexWorktrees(config: SessionConfig): boolean {
+  const harnessName = config.harness ?? getDefaultHarnessName();
+  const strategy = config.worktreeStrategy ?? pluginConfig.defaultWorktreeStrategy;
+  return harnessName === "codex" && !!strategy && strategy !== "off";
 }
 
 function appendWorktreeSystemPrompt(
@@ -90,6 +96,10 @@ function restoreResumeWorktreeContext(
     throw new Error(`Cannot resume session "${resumeWorktreeId}": persisted worktree metadata is missing worktreeBranch.`);
   }
 
+  const usesNativeCodexWorktree =
+    persistedSession.backendRef?.kind === "codex-app-server"
+    && !!persistedSession.backendRef.worktreePath;
+
   if (existsSync(persistedSession.worktreePath)) {
     console.info(`[SessionManager] Resuming with existing worktree: ${persistedSession.worktreePath}`);
     return {
@@ -103,6 +113,17 @@ function restoreResumeWorktreeContext(
   if (!originalWorkdir) {
     console.warn(`[SessionManager] Worktree ${persistedSession.worktreePath} no longer exists and cannot be recreated, using original workdir`);
     return {};
+  }
+
+  if (usesNativeCodexWorktree) {
+    console.info(
+      `[SessionManager] Native Codex worktree ${persistedSession.worktreePath} is missing; resuming from original workdir and letting the backend restore thread state.`,
+    );
+    return {
+      actualWorkdir: originalWorkdir,
+      originalWorkdir,
+      worktreeBranchName: persistedSession.worktreeBranch,
+    };
   }
 
   try {
@@ -144,7 +165,12 @@ export function prepareSessionBootstrap(
   const isResumedSession = !!(config.resumeSessionId ?? config.resumeWorktreeFrom);
   const strategy = config.worktreeStrategy ?? pluginConfig.defaultWorktreeStrategy;
   if (strategy) config.worktreeStrategy = strategy;
-  const shouldWorktree = !config.resumeSessionId && !worktreePath && strategy && strategy !== "off";
+  const useNativeCodexWorktree = prefersNativeCodexWorktrees(config);
+  const shouldWorktree = !config.resumeSessionId && !worktreePath && strategy && strategy !== "off" && !useNativeCodexWorktree;
+
+  if (useNativeCodexWorktree && !isGitRepo(originalWorkdir)) {
+    throw new Error(`Cannot launch session "${name}": worktree strategy "${strategy}" requires a git worktree, but "${originalWorkdir}" is not a git repository.`);
+  }
 
   if (shouldWorktree && isGitRepo(originalWorkdir)) {
     if (!hasEnoughWorktreeSpace()) {

@@ -257,7 +257,7 @@ describe("SessionStore path resolution", () => {
     });
   });
 
-  it("normalizes legacy soft-plan persisted values to codex-first-turn-plan", () => {
+  it("normalizes legacy plan-context values to plan-mode", () => {
     const dir = mkdtempSync(join(tmpdir(), "openclaw-store-plan-context-"));
     const indexPath = join(dir, "sessions.json");
     writeStore(indexPath, [{
@@ -279,7 +279,7 @@ describe("SessionStore path resolution", () => {
     });
 
     const persisted = store.getPersistedSession("plan-context");
-    assert.equal(persisted?.planApprovalContext, "codex-first-turn-plan");
+    assert.equal(persisted?.planApprovalContext, "plan-mode");
   });
 
   it("preserves persisted waiting lifecycles across reload", () => {
@@ -329,6 +329,7 @@ describe("SessionStore path resolution", () => {
     });
 
     assert.equal(store.getPersistedSession("awaiting-plan")?.lifecycle, "awaiting_plan_decision");
+    assert.equal(store.getPersistedSession("awaiting-plan")?.planApprovalContext, "plan-mode");
     assert.equal(store.getPersistedSession("awaiting-input")?.lifecycle, "awaiting_user_input");
     assert.equal(store.getPersistedSession("awaiting-worktree")?.lifecycle, "awaiting_worktree_decision");
     assert.equal(store.getPersistedSession("awaiting-worktree")?.worktreeState, "pending_decision");
@@ -361,6 +362,53 @@ describe("SessionStore path resolution", () => {
 
     const archived = readdirSync(dir).filter((name) => name.startsWith("sessions.json.legacy-"));
     assert.equal(archived.length, 1);
+  });
+
+  it("archives legacy Codex SDK session rows and keeps only App Server-backed sessions", () => {
+    const dir = mkdtempSync(join(tmpdir(), "openclaw-store-codex-upgrade-"));
+    const indexPath = join(dir, "sessions.json");
+    writeStore(indexPath, [
+      {
+        sessionId: "legacy-codex",
+        harnessSessionId: "h-legacy-codex",
+        name: "legacy-codex",
+        prompt: "p",
+        workdir: "/tmp",
+        status: "completed",
+        costUsd: 0,
+        harness: "codex",
+      },
+      {
+        sessionId: "current-codex",
+        harnessSessionId: "h-current-codex",
+        backendRef: {
+          kind: "codex-app-server",
+          conversationId: "h-current-codex",
+        },
+        name: "current-codex",
+        prompt: "p",
+        workdir: "/tmp",
+        status: "completed",
+        lifecycle: "terminal",
+        runtimeState: "stopped",
+        costUsd: 0,
+        harness: "codex",
+      },
+    ]);
+
+    const store = new SessionStore({
+      indexPath,
+      env: {},
+    });
+
+    assert.equal(store.getPersistedSession("legacy-codex"), undefined);
+    assert.equal(store.getPersistedSession("current-codex")?.backendRef?.kind, "codex-app-server");
+
+    const archivedLegacyFiles = readdirSync(dir).filter((name) => name.includes(".codex-sdk-legacy-"));
+    assert.equal(archivedLegacyFiles.length, 1);
+    const archivedPayload = JSON.parse(readFileSync(join(dir, archivedLegacyFiles[0]), "utf-8"));
+    assert.equal(Array.isArray(archivedPayload), true);
+    assert.equal(archivedPayload[0].harnessSessionId, "h-legacy-codex");
   });
 
   it("archives current-schema stores whose sessions are missing route metadata", () => {

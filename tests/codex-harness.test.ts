@@ -17,6 +17,7 @@ class MockJsonRpcClient {
     private readonly options: {
       threadId?: string;
       runId?: string;
+      threadCwd?: string;
       assistantText?: string;
       finalPlanMarkdown?: string;
       pendingInput?: {
@@ -44,10 +45,16 @@ class MockJsonRpcClient {
 
     if (method === "initialize") return {};
     if (method === "thread/start" || method === "thread/new") {
-      return { threadId: this.options.threadId ?? "thread-123" };
+      return {
+        threadId: this.options.threadId ?? "thread-123",
+        ...(this.options.threadCwd ? { cwd: this.options.threadCwd } : {}),
+      };
     }
     if (method === "thread/resume") {
-      return { threadId: this.options.threadId ?? "thread-resume" };
+      return {
+        threadId: this.options.threadId ?? "thread-resume",
+        ...(this.options.threadCwd ? { cwd: this.options.threadCwd } : {}),
+      };
     }
     if (method === "turn/interrupt") {
       return {};
@@ -118,7 +125,7 @@ async function collectMessages(
   for await (const message of session.messages) {
     out.push(message);
     if (out.length >= limit) break;
-    if (message.type === "run_completed" || message.type === "result") break;
+    if (message.type === "run_completed") break;
   }
   return out;
 }
@@ -139,6 +146,7 @@ describe("CodexHarness static properties", () => {
   it("exposes native pending-input and plan-artifact capabilities", () => {
     assert.equal(h.capabilities.nativePendingInput, true);
     assert.equal(h.capabilities.nativePlanArtifacts, true);
+    assert.equal(h.capabilities.worktrees, "native-restore");
   });
 });
 
@@ -195,8 +203,31 @@ describe("CodexHarness App Server mapping", () => {
     }));
 
     assert.equal(client.requests.some((request) => request.method === "thread/resume"), true);
+    const resumeRequest = client.requests.find((request) => request.method === "thread/resume");
+    assert.equal(Object.hasOwn((resumeRequest?.params as Record<string, unknown>) ?? {}, "cwd"), false);
     const ref = messages.find((message) => message.type === "backend_ref") as Extract<HarnessMessage, { type: "backend_ref" }> | undefined;
     assert.equal(ref?.ref.conversationId, "thread-existing");
+  });
+
+  it("captures native Codex worktree refs from thread state", async () => {
+    const client = new MockJsonRpcClient({
+      threadId: "thread-worktree",
+      threadCwd: "/Users/test/.codex/worktrees/abcd/openclaw",
+    });
+    const harness = new CodexHarness({
+      createClient: () => client as any,
+    });
+
+    const messages = await collectMessages(harness.launch({
+      prompt: "ship it",
+      cwd: "/repo/openclaw",
+      originalWorkdir: "/repo/openclaw",
+      worktreeStrategy: "ask",
+    }));
+    const ref = messages.find((message) => message.type === "backend_ref") as Extract<HarnessMessage, { type: "backend_ref" }> | undefined;
+
+    assert.equal(ref?.ref.worktreePath, "/Users/test/.codex/worktrees/abcd/openclaw");
+    assert.equal(ref?.ref.worktreeId, "abcd");
   });
 
   it("emits structured pending input and resolves button selections", async () => {

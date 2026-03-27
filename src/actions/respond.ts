@@ -31,12 +31,16 @@ type PlanApprovalTarget = Pick<
   "approvalState" | "pendingPlanApproval" | "currentPermissionMode" | "name"
 >;
 
+function getBackendConversationId(session: ResumableSession): string | undefined {
+  return session.backendRef?.conversationId ?? session.harnessSessionId;
+}
+
 function getSessionRef(session: ResumableSession): string {
   return "id" in session ? session.id : (session.sessionId ?? session.harnessSessionId);
 }
 
 function isExplicitlyResumable(session: ResumableSession): boolean {
-  return session.lifecycle === "suspended" && !!session.harnessSessionId;
+  return session.lifecycle === "suspended" && !!getBackendConversationId(session);
 }
 
 /**
@@ -44,7 +48,7 @@ function isExplicitlyResumable(session: ResumableSession): boolean {
  * harness ever initialised — i.e. it has no harness session ID to resume.
  */
 function isNeverStartedShutdown(session: ResumableSession): boolean {
-  return session.killReason === "shutdown" && !session.harnessSessionId;
+  return session.killReason === "shutdown" && !getBackendConversationId(session);
 }
 
 async function spawnFreshRelaunch(
@@ -118,9 +122,9 @@ async function tryAutoResume(
     const activeSession = "harnessName" in session ? session : undefined;
     const persistedSession = "harnessName" in session ? undefined : session;
     const { resumeSessionId } = decideResumeSessionId({
-      requestedResumeSessionId: session.harnessSessionId,
+      requestedResumeSessionId: getBackendConversationId(session),
       activeSession: activeSession
-        ? { harnessSessionId: activeSession.harnessSessionId }
+        ? { harnessSessionId: getBackendConversationId(activeSession) }
         : undefined,
       persistedSession: persistedSession
         ? { harness: persistedSession.harness }

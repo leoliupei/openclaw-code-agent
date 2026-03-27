@@ -124,7 +124,7 @@ export function formatSessionListing(session: SessionListRenderable): string {
   }
 
   if (session.harnessSessionId) {
-    lines.push(`   🔗 Session ID: ${session.harnessSessionId}`);
+    lines.push(`   🔗 Backend ID: ${session.harnessSessionId}`);
   }
   if (session.resumeSessionId) {
     lines.push(`   ↩️  Resumed from: ${session.resumeSessionId}${session.forkSession ? " (forked)" : ""}`);

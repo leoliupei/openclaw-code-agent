@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildCompletedPayload,
   buildDelegateWorktreeWakeMessage,
+  buildFailedPayload,
   buildNoChangeDeliverableMessage,
   buildWaitingForInputPayload,
 } from "../src/session-notification-builder";
@@ -45,6 +46,27 @@ describe("session-notification-builder", () => {
     assert.equal(payload.userMessage, "✅ [done-session] Completed | $1.25 | 1m1s");
     assert.match(payload.wakeMessage, /Coding agent session completed\./);
     assert.match(payload.wakeMessage, /Output preview:/);
+  });
+
+  it("uses agent_respond as the primary continuation path in failure wakes", () => {
+    const payload = buildFailedPayload({
+      session: {
+        id: "session-2",
+        name: "failed-session",
+        status: "failed",
+        costUsd: 0,
+        duration: 10_000,
+        harnessSessionId: "backend-thread-1",
+      } as any,
+      originThreadLine: "Origin thread: telegram topic 42",
+      errorSummary: "rate limit exceeded",
+      preview: "Last output",
+      worktreeAutoCleaned: false,
+    });
+
+    assert.match(payload.wakeMessage, /agent_respond\(session='session-2'/);
+    assert.match(payload.wakeMessage, /agent_launch\(resume_session_id='session-2', fork_session=true/);
+    assert.match(payload.wakeMessage, /Backend conversation ID: backend-thread-1/);
   });
 
   it("preserves worktree deliverable cleanup messaging", () => {

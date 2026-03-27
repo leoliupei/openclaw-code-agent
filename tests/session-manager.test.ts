@@ -937,14 +937,14 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.label, "turn-complete");
   });
 
-  it("preserves Codex first-turn plan approvals as normal ask-mode buttons", () => {
+  it("preserves plan approvals as normal ask-mode buttons", () => {
     const s = fakeSession({
-      id: "s-codex-first-turn-plan",
-      name: "codex-first-turn-plan",
+      id: "s-plan-mode",
+      name: "plan-mode",
       status: "running",
       harnessName: "codex",
       pendingPlanApproval: true,
-      planApprovalContext: "codex-first-turn-plan",
+      planApprovalContext: "plan-mode",
       planApproval: "ask",
       getOutput: () => ["Codex first-turn plan preview"],
     });

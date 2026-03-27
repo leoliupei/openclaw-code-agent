@@ -213,8 +213,8 @@ export class SessionManager {
 
     const preparedLaunch = this.restore.prepareSpawn(config, name);
 
-    // Inject AskUserQuestion intercept for CC sessions. Codex sessions do not support
-    // canUseTool — their questions appear as plain text in the message stream.
+    // Inject AskUserQuestion intercept for CC sessions. Codex App Server exposes
+    // structured pending input natively, so only Claude needs the tool intercept.
     // Use a late-bound wrapper so we can capture session.id after construction.
     const harnessName = config.harness ?? "claude-code";
     const selfRef = this;

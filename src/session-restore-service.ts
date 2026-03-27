@@ -22,11 +22,13 @@ export class SessionRestoreService {
   hydrateSpawnedSession(
     session: Pick<Session, "worktreePath" | "originalWorkdir" | "worktreeBranch" | "worktreeState" | "worktreePrTargetRepo">,
     prepared: PreparedSessionLaunch,
-    config: Pick<SessionConfig, "worktreePrTargetRepo">,
+    config: Pick<SessionConfig, "worktreePrTargetRepo" | "worktreeStrategy">,
   ): void {
+    if (config.worktreeStrategy && config.worktreeStrategy !== "off") {
+      session.originalWorkdir = prepared.originalWorkdir;
+    }
     if (prepared.worktreePath) {
       session.worktreePath = prepared.worktreePath;
-      session.originalWorkdir = prepared.originalWorkdir;
       session.worktreeBranch = prepared.worktreeBranchName;
       session.worktreeState = "provisioned";
     }
