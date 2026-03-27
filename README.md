@@ -6,6 +6,8 @@
 
 An [OpenClaw](https://openclaw.com) plugin that lets AI agents orchestrate coding agent sessions as managed background processes. Launch, monitor, and interact with multiple concurrent coding sessions directly from Telegram, Discord, or any OpenClaw-supported messaging platform — without leaving your chat interface.
 
+> **Release status:** `3.0.0` is currently buggy. We are working on a fix and will publish an updated release as soon as it is ready. Until then, use `2.3.1`, which remains stable.
+
 ## Why?
 
 This plugin started as a response to a real gap in OpenClaw's built-in ACP support. At the time, ACP was effectively a raw relay into ACP backends: useful for handing off a prompt, but without the orchestration layer needed for coding-agent work in chat. There was no plan review flow, no plugin-managed pause/resume model, no fork flow, no cost or session stats, and no async notification path back to the originating chat when a session needed input or finished.
