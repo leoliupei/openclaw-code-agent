@@ -38,17 +38,25 @@ export class SessionStateSyncService {
     return true;
   }
 
+  private matchesExistingSession(session: Session, existing?: PersistedSessionInfo): boolean {
+    if (!existing) return false;
+    const sessionBackendConversationId = getBackendConversationId(session);
+    const existingBackendConversationId = getBackendConversationId(existing);
+    if (existing.sessionId && session.id === existing.sessionId) return true;
+    if (existingBackendConversationId && existingBackendConversationId === sessionBackendConversationId) return true;
+    if (existing?.harnessSessionId && session.harnessSessionId === existing.harnessSessionId) return true;
+    if (existing?.name && session.name === existing.name) return true;
+    return false;
+  }
+
   private findActiveSessionForRef(ref: string, existing?: PersistedSessionInfo): Session | undefined {
     const byResolve = this.deps.resolveSession(ref);
     if (byResolve) return byResolve;
 
     for (const session of this.deps.sessions.values()) {
       if (getBackendConversationId(session) === ref) return session;
-      if (session.harnessSessionId === ref) return session;
-      if (existing?.sessionId && session.id === existing.sessionId) return session;
-      if (existing && getBackendConversationId(existing) === getBackendConversationId(session)) return session;
-      if (existing?.harnessSessionId && session.harnessSessionId === existing.harnessSessionId) return session;
-      if (existing?.name && session.name === existing.name) return session;
+      if (session.harnessSessionId === ref) return session; // compatibility-only lookup
+      if (this.matchesExistingSession(session, existing)) return session;
     }
 
     return undefined;

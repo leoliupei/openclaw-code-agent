@@ -4,6 +4,7 @@ import { getHarness } from "../src/harness";
 import type { HarnessMessage } from "../src/harness/types";
 
 const RUN_LIVE = process.env.OPENCLAW_RUN_LIVE_CODEX_SMOKE === "1";
+const RUN_LIVE_WORKTREE = process.env.OPENCLAW_RUN_LIVE_CODEX_WORKTREE_SMOKE === "1";
 const LIVE_TIMEOUT_MS = 120_000;
 
 async function collectUntilCompleted(
@@ -59,5 +60,44 @@ describe("live Codex App Server smoke", () => {
     assert.ok(resumedResult && resumedResult.type === "run_completed");
     assert.equal(resumedResult?.data.success, true);
     assert.equal(resumedResult?.data.session_id, backendRef.ref.conversationId);
+  });
+
+  it("reuses a native Codex worktree ref when explicitly enabled", { skip: !RUN_LIVE_WORKTREE, timeout: LIVE_TIMEOUT_MS }, async () => {
+    const codex = getHarness("codex");
+
+    const first = codex.launch({
+      prompt: "Reply with the exact word WORKTREE and then stop.",
+      cwd: process.cwd(),
+      worktreeStrategy: "ask",
+      originalWorkdir: process.cwd(),
+    });
+    const firstMessages = await collectUntilCompleted(first.messages);
+    const backendRefs = firstMessages.filter((message): message is Extract<HarnessMessage, { type: "backend_ref" }> => message.type === "backend_ref");
+    const worktreeRef = backendRefs.find((message) => Boolean(message.ref.worktreePath || message.ref.worktreeId));
+    const firstResult = firstMessages.find((message) => message.type === "run_completed");
+
+    assert.ok(firstResult && firstResult.type === "run_completed");
+    assert.equal(firstResult?.data.success, true);
+    assert.ok(worktreeRef, "expected a backend_ref with native Codex worktree metadata");
+
+    const resumed = codex.launch({
+      prompt: "Reply with the exact word REUSED and then stop.",
+      cwd: process.cwd(),
+      resumeSessionId: worktreeRef.ref.conversationId,
+      backendRef: worktreeRef.ref,
+      worktreeStrategy: "ask",
+      originalWorkdir: process.cwd(),
+    });
+    const resumedMessages = await collectUntilCompleted(resumed.messages);
+    const resumedRef = resumedMessages.find((message): message is Extract<HarnessMessage, { type: "backend_ref" }> => message.type === "backend_ref");
+    const resumedResult = resumedMessages.find((message) => message.type === "run_completed");
+
+    assert.ok(resumedRef);
+    assert.ok(resumedResult && resumedResult.type === "run_completed");
+    assert.equal(resumedResult?.data.success, true);
+    assert.equal(resumedRef.ref.conversationId, worktreeRef.ref.conversationId);
+    if (worktreeRef.ref.worktreeId) {
+      assert.equal(resumedRef.ref.worktreeId, worktreeRef.ref.worktreeId);
+    }
   });
 });

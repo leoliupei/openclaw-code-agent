@@ -163,25 +163,40 @@ export class SessionStore {
     assertNewSchemaEntry(entry);
   }
 
+  private getEntryStorageKey(entry: PersistedSessionInfo): string {
+    // Persisted map storage still uses harnessSessionId for compatibility with the
+    // on-disk shape, but backend conversation ids are the preferred runtime identity.
+    return entry.harnessSessionId;
+  }
+
+  private buildPersistedBackendRef(session: Session): PersistedSessionInfo["backendRef"] {
+    return session.backendRef ?? {
+      kind: resolveHarnessName(session) === "codex" ? "codex-app-server" : "claude-code",
+      conversationId: session.harnessSessionId!,
+    };
+  }
+
   private indexPersistedEntry(entry: PersistedSessionInfo): void {
-    this.persisted.set(entry.harnessSessionId, entry);
-    if (entry.sessionId) this.idIndex.set(entry.sessionId, entry.harnessSessionId);
-    if (entry.name) this.nameIndex.set(entry.name, entry.harnessSessionId);
+    const storageKey = this.getEntryStorageKey(entry);
+    this.persisted.set(storageKey, entry);
+    if (entry.sessionId) this.idIndex.set(entry.sessionId, storageKey);
+    if (entry.name) this.nameIndex.set(entry.name, storageKey);
     const backendConversationId = getBackendConversationId(entry);
-    if (backendConversationId) this.backendIdIndex.set(backendConversationId, entry.harnessSessionId);
+    if (backendConversationId) this.backendIdIndex.set(backendConversationId, storageKey);
   }
 
   private removePersistedIndexes(entry: PersistedSessionInfo): void {
-    this.persisted.delete(entry.harnessSessionId);
+    const storageKey = this.getEntryStorageKey(entry);
+    this.persisted.delete(storageKey);
 
     for (const [k, v] of this.idIndex) {
-      if (v === entry.harnessSessionId) this.idIndex.delete(k);
+      if (v === storageKey) this.idIndex.delete(k);
     }
     for (const [k, v] of this.nameIndex) {
-      if (v === entry.harnessSessionId) this.nameIndex.delete(k);
+      if (v === storageKey) this.nameIndex.delete(k);
     }
     for (const [k, v] of this.backendIdIndex) {
-      if (v === entry.harnessSessionId) this.backendIdIndex.delete(k);
+      if (v === storageKey) this.backendIdIndex.delete(k);
     }
   }
 
@@ -220,10 +235,7 @@ export class SessionStore {
     const stub: PersistedSessionInfo = {
       sessionId: session.id,
       harnessSessionId: session.harnessSessionId,
-      backendRef: session.backendRef ?? {
-        kind: resolveHarnessName(session) === "codex" ? "codex-app-server" : "claude-code",
-        conversationId: session.harnessSessionId,
-      },
+      backendRef: this.buildPersistedBackendRef(session),
       name: session.name,
       prompt: session.prompt,
       workdir: session.originalWorkdir ?? session.workdir, // E1: Always write originalWorkdir
@@ -301,10 +313,7 @@ export class SessionStore {
     const info: PersistedSessionInfo = {
       sessionId: session.id,
       harnessSessionId: session.harnessSessionId,
-      backendRef: session.backendRef ?? {
-        kind: resolveHarnessName(session) === "codex" ? "codex-app-server" : "claude-code",
-        conversationId: session.harnessSessionId,
-      },
+      backendRef: this.buildPersistedBackendRef(session),
       name: session.name,
       prompt: session.prompt,
       workdir: session.originalWorkdir ?? session.workdir, // E1: Always write originalWorkdir
@@ -379,7 +388,7 @@ export class SessionStore {
     return winner;
   }
 
-  /** Resolve any session reference to the canonical backend conversation id, if possible. */
+  /** Resolve any session reference to the canonical backend conversation id when available. */
   resolveBackendConversationId(ref: string, activeBackendConversationId?: string): string | undefined {
     if (activeBackendConversationId) return activeBackendConversationId;
 
@@ -414,7 +423,7 @@ export class SessionStore {
     return this.resolveBackendConversationId(ref, activeHarnessSessionId);
   }
 
-  /** Resolve persisted session metadata by harness id, internal id, or name. */
+  /** Resolve persisted session metadata by session id, name, backend id, or compatibility key. */
   getPersistedSession(ref: string): PersistedSessionInfo | undefined {
     const byId = this.idIndex.get(ref);
     if (byId) return this.persisted.get(byId);
