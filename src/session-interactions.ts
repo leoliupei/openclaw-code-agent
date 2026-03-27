@@ -50,22 +50,43 @@ export class SessionInteractionService {
   ): NotificationButton[][] {
     if (!session) return [];
 
-    const buttons: NotificationButton[] = [
-      this.makeActionButton(sessionId, "worktree-merge", "Merge locally"),
+    const rows: NotificationButton[][] = [];
+    const primaryRow: NotificationButton[] = [
+      this.makeActionButton(sessionId, "worktree-merge", "Merge"),
     ];
-
     if (this.isGitHubCliAvailable()) {
       if (session.worktreePrUrl) {
-        buttons.push(this.makeActionButton(sessionId, "worktree-view-pr", "View PR", { targetUrl: session.worktreePrUrl }));
-        buttons.push(this.makeActionButton(sessionId, "worktree-update-pr", "Update PR"));
+        primaryRow.push(this.makeActionButton(sessionId, "worktree-view-pr", "View PR", {
+          targetUrl: session.worktreePrUrl,
+        }));
+        rows.push(primaryRow);
+        rows.push([
+          this.makeActionButton(sessionId, "worktree-update-pr", "Sync PR"),
+          this.makeActionButton(sessionId, "worktree-decide-later", "Later"),
+        ]);
       } else {
-        buttons.push(this.makeActionButton(sessionId, "worktree-create-pr", "Create PR"));
+        primaryRow.push(this.makeActionButton(sessionId, "worktree-create-pr", "Open PR"));
+        rows.push(primaryRow);
+        rows.push([
+          this.makeActionButton(sessionId, "worktree-decide-later", "Later"),
+          this.makeActionButton(sessionId, "worktree-dismiss", "Discard"),
+        ]);
       }
+    } else {
+      rows.push([
+        ...primaryRow,
+        this.makeActionButton(sessionId, "worktree-decide-later", "Later"),
+      ]);
+      rows.push([this.makeActionButton(sessionId, "worktree-dismiss", "Discard")]);
+      return rows;
     }
 
-    buttons.push(this.makeActionButton(sessionId, "worktree-decide-later", "Decide later"));
-    buttons.push(this.makeActionButton(sessionId, "worktree-dismiss", "Dismiss"));
-    return [buttons];
+    if (session.worktreePrUrl) {
+      rows.push([this.makeActionButton(sessionId, "worktree-dismiss", "Discard")]);
+      return rows;
+    }
+
+    return rows;
   }
 
   getPlanApprovalButtons(sessionId: string, session?: ButtonSource): NotificationButton[][] {

@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import type { NotificationRoute } from "./wake-route-resolver";
+import { CALLBACK_NAMESPACE } from "./interactive-constants";
 
 export class WakeTransport {
   buildChatSendArgs(sessionKey: string, text: string, deliver: boolean): string[] {
@@ -45,7 +46,9 @@ export class WakeTransport {
       args.push("--buttons", JSON.stringify(
         buttons.map((row) => row.map((button) => ({
           text: button.label,
-          callback_data: button.callbackData,
+          callback_data: button.callbackData.startsWith(`${CALLBACK_NAMESPACE}:`)
+            ? button.callbackData
+            : `${CALLBACK_NAMESPACE}:${button.callbackData}`,
         }))),
       ));
     }

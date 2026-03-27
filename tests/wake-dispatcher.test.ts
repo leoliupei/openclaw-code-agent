@@ -280,8 +280,8 @@ appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(
     const notifyArgs = parseMessageSendArgs(notifyCall);
     assert.equal(notifyArgs.message, "🔀 Worktree decision required");
     assert.equal(notifyArgs.buttons, JSON.stringify([[
-      { text: "✅ Merge", callback_data: "token-merge" },
-      { text: "📬 Open PR", callback_data: "token-pr" },
+      { text: "✅ Merge", callback_data: "code-agent:token-merge" },
+      { text: "📬 Open PR", callback_data: "code-agent:token-pr" },
     ]]));
     const wakeParams = parseChatSendParams(wakeCall);
     assert.equal(wakeParams.message, "Delegated worktree decision wake");

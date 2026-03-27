@@ -283,6 +283,83 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
     }
   });
 
+  it("adds a concise implementation summary and shorter button rows for ask-mode worktree prompts", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-ask-summary-"));
+    try {
+      git(repoDir, "init", "-b", "main");
+      git(repoDir, "config", "user.name", "Test User");
+      git(repoDir, "config", "user.email", "test@example.com");
+      writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+      writeFileSync(join(repoDir, "notes.txt"), "base\n", "utf-8");
+      git(repoDir, "add", "README.md", "notes.txt");
+      git(repoDir, "commit", "-m", "init");
+
+      const worktreePath = createWorktree(repoDir, "ask-summary");
+      const branchName = getBranchName(worktreePath);
+      assert.ok(branchName, "worktree branch should exist");
+
+      writeFileSync(join(worktreePath, "README.md"), "hello\nupdated\n", "utf-8");
+      writeFileSync(join(worktreePath, "src-note.txt"), "new file\n", "utf-8");
+      git(worktreePath, "add", "README.md", "src-note.txt");
+      git(worktreePath, "commit", "-m", "tighten worktree decision UX");
+
+      const sm = new SessionManager(5);
+      stubDispatch(sm);
+      (sm as any).store.persisted.set("h-ask-summary", {
+        harnessSessionId: "h-ask-summary",
+        name: "ask-summary",
+        prompt: "fix the worktree decision prompt",
+        workdir: repoDir,
+        route: {
+          provider: "telegram",
+          target: "12345",
+          sessionKey: "agent:main:telegram:group:12345",
+        },
+        status: "completed",
+        costUsd: 0,
+        worktreePath,
+        worktreeBranch: branchName,
+        worktreeStrategy: "ask",
+      });
+
+      const session = {
+        id: "s-ask-summary",
+        name: "ask-summary",
+        status: "completed",
+        phase: "implementing",
+        harnessSessionId: "h-ask-summary",
+        prompt: "fix the worktree decision prompt",
+        originalWorkdir: repoDir,
+        worktreePath,
+        worktreeBranch: branchName,
+        worktreeStrategy: "ask",
+        worktreeBaseBranch: "main",
+        pendingPlanApproval: false,
+      };
+      (sm as any).sessions.set(session.id, session);
+
+      const result = await (sm as any).handleWorktreeStrategy(session);
+
+      assert.deepEqual(result, { notificationSent: true, worktreeRemoved: false });
+      const calls = (sm as any).__dispatchCalls;
+      assert.equal(calls.length, 1);
+      const [_sessionArg, request] = calls[0];
+      assert.equal(request.label, "worktree-merge-ask");
+      assert.match(request.userMessage, /Summary:/);
+      assert.match(request.userMessage, /Touches `README.md`, `src-note.txt`/);
+      assert.match(request.userMessage, /Recent work: tighten worktree decision UX/);
+      assert.deepEqual(
+        request.buttons.map((row: Array<{ label: string }>) => row.map((button) => button.label)),
+        [
+          ["Merge", "Open PR"],
+          ["Later", "Discard"],
+        ],
+      );
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
   it("daily cleanup removes resolved worktrees after retention", () => {
     const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-retention-"));
     try {

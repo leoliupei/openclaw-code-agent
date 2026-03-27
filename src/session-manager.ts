@@ -378,6 +378,33 @@ export class SessionManager {
     ].join("\n");
   }
 
+  private buildWorktreeDecisionSummary(diffSummary: {
+    changedFiles: string[];
+    commitMessages: Array<{ message: string }>;
+  }): string[] {
+    const summaryLines: string[] = [];
+    const topFiles = diffSummary.changedFiles.slice(0, 3).map((file) => `\`${file}\``);
+    if (topFiles.length > 0) {
+      const remainingFiles = diffSummary.changedFiles.length - topFiles.length;
+      summaryLines.push(
+        remainingFiles > 0
+          ? `Touches ${topFiles.join(", ")} and ${remainingFiles} more file${remainingFiles === 1 ? "" : "s"}`
+          : `Touches ${topFiles.join(", ")}`,
+      );
+    }
+
+    const recentSubjects = [...new Set(
+      diffSummary.commitMessages
+        .map((commit) => commit.message.trim())
+        .filter(Boolean),
+    )].slice(0, 2);
+    if (recentSubjects.length > 0) {
+      summaryLines.push(`Recent work: ${recentSubjects.join("; ")}`);
+    }
+
+    return summaryLines;
+  }
+
   private resolveWorktreeRepoDir(repoDir: string | undefined, worktreePath?: string): string | undefined {
     if (repoDir && (!worktreePath || repoDir !== worktreePath)) return repoDir;
     if (!worktreePath) return repoDir;
@@ -616,6 +643,7 @@ export class SessionManager {
     }
 
     if (strategy === "ask") {
+      const askSummaryLines = this.buildWorktreeDecisionSummary(diffSummary);
       const askCommitLines = diffSummary.commitMessages
         .slice(0, 5)
         .map((c) => `• ${c.hash} ${c.message} (${c.author})`);
@@ -631,10 +659,18 @@ export class SessionManager {
         askBranchLine,
         `Commits: ${diffSummary.commits} | Files: ${diffSummary.filesChanged} | +${diffSummary.insertions} / -${diffSummary.deletions}`,
         ``,
+        ...(askSummaryLines.length > 0
+          ? [
+              `Summary:`,
+              ...askSummaryLines.map((line) => `- ${line}`),
+              ``,
+            ]
+          : []),
+        `Recent commits:`,
         ...askCommitLines,
         ...(askMoreNote ? [askMoreNote] : []),
         ``,
-        `⚠️ Dismiss will permanently delete branch \`${branchName}\` and all local changes. This cannot be undone.`,
+        `⚠️ Discard will permanently delete branch \`${branchName}\` and all local changes. This cannot be undone.`,
       ].join("\n");
 
       this.dispatchSessionNotification(session, {

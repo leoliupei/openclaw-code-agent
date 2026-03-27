@@ -3,10 +3,8 @@ import { executeRespond } from "./actions/respond";
 import { makeAgentMergeTool } from "./tools/agent-merge";
 import { makeAgentPrTool } from "./tools/agent-pr";
 import { makeAgentOutputTool } from "./tools/agent-output";
+import { CALLBACK_NAMESPACE } from "./interactive-constants";
 import type { PersistedSessionInfo, SessionActionKind, SessionActionToken } from "./types";
-
-/** Interactive callback namespace registered with the gateway. */
-export const CALLBACK_NAMESPACE = "code-agent";
 
 /**
  * Minimal Telegram callback handler context (mirrors OpenClaw's
@@ -18,6 +16,7 @@ interface TelegramCallbackContext {
   respond: {
     reply: (params: { text: string }) => Promise<void>;
     clearButtons: () => Promise<void>;
+    editMessage?: (params: { text: string; buttons?: Array<Array<{ label: string; callbackData: string }>> }) => Promise<void>;
   };
 }
 
@@ -29,8 +28,26 @@ type PlanDecisionTarget = Pick<
 >;
 
 function parsePayload(payload: string): string | null {
-  const tokenId = payload.trim();
+  const tokenId = payload.trim().replace(new RegExp(`^${CALLBACK_NAMESPACE}:`), "");
   return tokenId ? tokenId : null;
+}
+
+async function resolveWorktreePrompt(
+  ctx: TelegramCallbackContext,
+  text: string,
+): Promise<void> {
+  if (typeof ctx.respond.editMessage === "function") {
+    try {
+      await ctx.respond.editMessage({ text, buttons: [] });
+      return;
+    } catch (err) {
+      const errText = err instanceof Error ? err.message : String(err);
+      if (!/message is not modified/i.test(errText)) {
+        console.warn(`[callback-handler] Failed to edit worktree prompt: ${errText}`);
+      }
+    }
+  }
+  await ctx.respond.clearButtons();
 }
 
 /** Extract text from a tool execute result content array. */
@@ -128,6 +145,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
 
       const sessionId = token.sessionId;
       const actionSession = sessionManager.resolve?.(sessionId) ?? sessionManager.getPersistedSession?.(sessionId);
+      const actionSessionName = actionSession?.name ?? sessionId;
       const invalidPlanDecision = validatePlanDecisionToken(token, actionSession);
 
       if (invalidPlanDecision) {
@@ -136,24 +154,24 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         return { handled: true };
       }
 
-      // Answer the callback query immediately: removes spinner and buttons from message.
-      await ctx.respond.clearButtons();
-
       // Route action
       switch (token.kind) {
         case "worktree-merge": {
+          await resolveWorktreePrompt(ctx, `✅ Merge selected for [${actionSessionName}]`);
           const result = await makeAgentMergeTool().execute("callback", { session: sessionId });
           await ctx.respond.reply({ text: toolResultText(result) });
           break;
         }
 
         case "worktree-decide-later": {
+          await resolveWorktreePrompt(ctx, `⏭️ Deferred for [${actionSessionName}]`);
           const result = sessionManager.snoozeWorktreeDecision(sessionId);
           await ctx.respond.reply({ text: result.startsWith("Error") ? result : "⏭️ Snoozed 24h" });
           break;
         }
 
         case "worktree-dismiss": {
+          await resolveWorktreePrompt(ctx, `🗑️ Discarded for [${actionSessionName}]`);
           const result = await sessionManager.dismissWorktree(sessionId);
           await ctx.respond.reply({ text: result.startsWith("Error") ? result : result });
           break;
@@ -161,6 +179,12 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
 
         case "worktree-create-pr":
         case "worktree-update-pr": {
+          await resolveWorktreePrompt(
+            ctx,
+            token.kind === "worktree-update-pr"
+              ? `📬 PR update selected for [${actionSessionName}]`
+              : `📬 PR selected for [${actionSessionName}]`,
+          );
           // Do NOT pre-clear pendingWorktreeDecisionSince here.
           // For the PR path the worktree directory must stay alive indefinitely so the
           // user can push follow-up commits for PR review.  The worktree directory was
@@ -174,6 +198,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "worktree-view-pr": {
+          await ctx.respond.clearButtons();
           const persisted = sessionManager.getPersistedSession?.(sessionId);
           const url = token.targetUrl ?? persisted?.worktreePrUrl;
           await ctx.respond.reply({ text: url ? `PR: ${url}` : "⚠️ PR URL is no longer available." });
@@ -181,6 +206,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "plan-approve": {
+          await ctx.respond.clearButtons();
           const result = await executeRespond(sessionManager, {
             session: sessionId,
             message: "Approved. Go ahead.",
@@ -192,6 +218,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "plan-reject": {
+          await ctx.respond.clearButtons();
           const active = sessionManager.resolve(sessionId);
           if (active) {
             active.approvalState = "rejected";
@@ -204,6 +231,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "plan-request-changes": {
+          await ctx.respond.clearButtons();
           const reviseSession = sessionManager.resolve?.(sessionId);
           const revisePersisted = sessionManager.getPersistedSession?.(sessionId);
           const reviseName = reviseSession?.name ?? revisePersisted?.name ?? sessionId;
@@ -222,6 +250,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
 
         case "session-restart":
         case "session-resume": {
+          await ctx.respond.clearButtons();
           const result = await executeRespond(sessionManager, {
             session: sessionId,
             message: "Continue where you left off.",
@@ -232,12 +261,14 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "view-output": {
+          await ctx.respond.clearButtons();
           const result = await makeAgentOutputTool().execute("callback", { session: sessionId, lines: 50 });
           await ctx.respond.reply({ text: toolResultText(result) });
           break;
         }
 
         case "question-answer": {
+          await ctx.respond.clearButtons();
           if (token.optionIndex == null) {
             await ctx.respond.reply({ text: `⚠️ Invalid question-answer action.` });
             break;
@@ -248,6 +279,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         default: {
+          await ctx.respond.clearButtons();
           await ctx.respond.reply({
             text: `⚠️ Unknown callback action.`,
           });

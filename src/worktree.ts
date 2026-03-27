@@ -378,6 +378,7 @@ export interface DiffSummary {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  changedFiles: string[];
   commitMessages: Array<{ hash: string; message: string; author: string }>;
 }
 
@@ -416,6 +417,17 @@ export function getDiffSummary(repoDir: string, branch: string, base: string): D
     const deletionsMatch = diffStat.match(/(\d+)\s+deletions?\(/);
     if (deletionsMatch) deletions = parseInt(deletionsMatch[1], 10);
 
+    const changedFilesResult = execFileSync(
+      "git",
+      ["-C", repoDir, "diff", "--name-only", "--diff-filter=ACMR", `${base}...${branch}`],
+      { timeout: 10_000, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const changedFiles = changedFilesResult
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
     // Get commit messages (last 5)
     const logResult = execFileSync(
       "git",
@@ -432,7 +444,7 @@ export function getDiffSummary(repoDir: string, branch: string, base: string): D
         return { hash: hash || "", message: message || "", author: author || "" };
       });
 
-    return { commits, filesChanged, insertions, deletions, commitMessages };
+    return { commits, filesChanged, insertions, deletions, changedFiles, commitMessages };
   } catch (err) {
     console.warn(`[worktree] Failed to get diff summary: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;

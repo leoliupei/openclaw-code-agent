@@ -6,6 +6,7 @@ import { createStubSession } from "./helpers";
 
 function createCtx(payload: string) {
   const replies: string[] = [];
+  const editedMessages: string[] = [];
   let buttonsCleared = 0;
   return {
     ctx: {
@@ -14,9 +15,11 @@ function createCtx(payload: string) {
       respond: {
         reply: async ({ text }: { text: string }) => { replies.push(text); },
         clearButtons: async () => { buttonsCleared++; },
+        editMessage: async ({ text }: { text: string }) => { editedMessages.push(text); },
       },
     },
     replies,
+    editedMessages,
     get buttonsCleared() {
       return buttonsCleared;
     },
@@ -150,6 +153,24 @@ describe("createCallbackHandler()", () => {
     assert.deepEqual(result, { handled: true });
     assert.deepEqual(resolved, [{ sessionId: "sess-42", optionIndex: 1 }]);
     assert.equal(state.replies[0], "✅ Answer submitted.");
+  });
+
+  it("rewrites worktree decision prompts to a resolved state before replying", async () => {
+    setSessionManager({
+      consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+      resolve: () => undefined,
+      getPersistedSession: () => ({ name: "ux-fix" }),
+      snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+    } as any);
+
+    const handler = createCallbackHandler();
+    const state = createCtx("token-snooze");
+    const result = await handler.handler(state.ctx as any);
+
+    assert.deepEqual(result, { handled: true });
+    assert.deepEqual(state.editedMessages, ["⏭️ Deferred for [ux-fix]"]);
+    assert.equal(state.buttonsCleared, 0);
+    assert.equal(state.replies[0], "⏭️ Snoozed 24h");
   });
 
   it("can be registered for Discord with the same action-token contract", async () => {
