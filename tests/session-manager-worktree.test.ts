@@ -87,6 +87,129 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
     }
   });
 
+  it("surfaces report-only output for no-change plan sessions instead of the generic cleanup message", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-plan-report-"));
+    try {
+      git(repoDir, "init", "-b", "main");
+      git(repoDir, "config", "user.name", "Test User");
+      git(repoDir, "config", "user.email", "test@example.com");
+      writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+      git(repoDir, "add", "README.md");
+      git(repoDir, "commit", "-m", "init");
+
+      const worktreePath = createWorktree(repoDir, "plan-report");
+      const branchName = getBranchName(worktreePath);
+      assert.ok(branchName, "worktree branch should exist");
+
+      const sm = new SessionManager(5);
+      stubDispatch(sm);
+      (sm as any).store.persisted.set("h-plan-report", {
+        harnessSessionId: "h-plan-report",
+        name: "plan-report",
+        prompt: "Investigate the issue and write a plan before making any code changes.",
+        workdir: repoDir,
+        route: {
+          provider: "telegram",
+          target: "12345",
+          sessionKey: "agent:main:telegram:group:12345",
+        },
+        status: "completed",
+        costUsd: 0,
+        worktreePath,
+        worktreeBranch: branchName,
+        worktreeStrategy: "ask",
+      });
+
+      const session = {
+        id: "s-plan-report",
+        name: "plan-report",
+        status: "completed",
+        phase: "implementing",
+        harnessSessionId: "h-plan-report",
+        prompt: "Investigate the issue and write a plan before making any code changes.",
+        originalWorkdir: repoDir,
+        worktreePath,
+        worktreeBranch: branchName,
+        worktreeStrategy: "ask",
+        worktreeBaseBranch: "main",
+        currentPermissionMode: "plan",
+        pendingPlanApproval: false,
+        getOutput: () => [
+          "Plan:",
+          "- Inspect the completion path in session-manager.ts",
+          "- Route report-only sessions through the existing notification pipeline",
+          "- Add regression coverage for no-change planning sessions",
+        ],
+      };
+
+      const result = await (sm as any).handleWorktreeStrategy(session);
+
+      assert.deepEqual(result, { notificationSent: true, worktreeRemoved: true });
+      const calls = (sm as any).__dispatchCalls;
+      assert.equal(calls.length, 1);
+      const [_sessionArg, request] = calls[0];
+      assert.equal(request.label, "worktree-no-change-deliverable");
+      assert.match(request.userMessage, /Completed with report-only output/);
+      assert.match(request.userMessage, /Route report-only sessions/);
+      assert.doesNotMatch(request.userMessage, /Session completed with no changes — worktree cleaned up/);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces report-only output for no-change investigation sessions even outside explicit plan mode", async () => {
+    const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-investigation-report-"));
+    try {
+      git(repoDir, "init", "-b", "main");
+      git(repoDir, "config", "user.name", "Test User");
+      git(repoDir, "config", "user.email", "test@example.com");
+      writeFileSync(join(repoDir, "README.md"), "hello\n", "utf-8");
+      git(repoDir, "add", "README.md");
+      git(repoDir, "commit", "-m", "init");
+
+      const worktreePath = createWorktree(repoDir, "investigation-report");
+      const branchName = getBranchName(worktreePath);
+      assert.ok(branchName, "worktree branch should exist");
+
+      const sm = new SessionManager(5);
+      stubDispatch(sm);
+
+      const session = {
+        id: "s-investigation-report",
+        name: "investigation-report",
+        status: "completed",
+        phase: "implementing",
+        harnessSessionId: "h-investigation-report",
+        prompt: "Investigate why the callback is skipped and report the root cause.",
+        originalWorkdir: repoDir,
+        worktreePath,
+        worktreeBranch: branchName,
+        worktreeStrategy: "ask",
+        worktreeBaseBranch: "main",
+        currentPermissionMode: "default",
+        pendingPlanApproval: false,
+        getOutput: () => [
+          "Findings:",
+          "The terminal cleanup branch runs before any output-aware completion fallback.",
+          "That makes a no-diff investigation look like a no-op even when a report was produced.",
+          "Recommended fix: inspect output before sending the generic no-change notification.",
+        ],
+      };
+
+      const result = await (sm as any).handleWorktreeStrategy(session);
+
+      assert.deepEqual(result, { notificationSent: true, worktreeRemoved: true });
+      const calls = (sm as any).__dispatchCalls;
+      assert.equal(calls.length, 1);
+      const [_sessionArg, request] = calls[0];
+      assert.equal(request.label, "worktree-no-change-deliverable");
+      assert.match(request.userMessage, /Findings:/);
+      assert.match(request.userMessage, /generic no-change notification/);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
   it("routes delegate mode to the orchestrator without user buttons", async () => {
     const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-delegate-"));
     try {

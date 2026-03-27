@@ -391,6 +391,47 @@ export class SessionManager {
     return `${session.worktreePath} (worktree of ${repoDir})`;
   }
 
+  private getNoChangeDeliverablePreview(session: Session, maxChars: number = 2_500): string | undefined {
+    const preview = this.getOutputPreview(session, maxChars).trim();
+    if (!preview) return undefined;
+
+    const nonEmptyLines = preview
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const hasStructuredContent = /(?:^|\n)\s*(?:[-*]\s+|\d+\.\s+)/m.test(preview)
+      || /\b(plan|summary|findings|report|investigation|root cause|recommendations?)\b/i.test(preview);
+    const isSubstantial = preview.length >= 120 || nonEmptyLines.length >= 3;
+
+    if (!isSubstantial && !hasStructuredContent) return undefined;
+    return preview;
+  }
+
+  private isPlanOrInvestigationSession(session: Pick<Session, "name" | "prompt"> & { currentPermissionMode?: string }): boolean {
+    if (session.currentPermissionMode === "plan") return true;
+
+    const combined = `${session.name}\n${session.prompt}`.toLowerCase();
+    return /\b(plan|planning|investigat(?:e|ion)|analy[sz]e|analysis|report|review|audit|research|root cause|findings|proposal|outline|spec)\b/.test(combined);
+  }
+
+  private buildNoChangeDeliverableMessage(
+    session: Pick<Session, "name">,
+    preview: string,
+    cleanupSucceeded: boolean,
+    worktreePath: string,
+  ): string {
+    const cleanupLine = cleanupSucceeded
+      ? "No code changes were made; the worktree was cleaned up."
+      : `No code changes were made; worktree cleanup failed. Worktree still exists at ${worktreePath}`;
+    return [
+      `📋 [${session.name}] Completed with report-only output:`,
+      ``,
+      preview,
+      ``,
+      cleanupLine,
+    ].join("\n");
+  }
+
   async dismissWorktree(ref: string): Promise<string> {
     const persistedSession = this.store.getPersistedSession(ref);
     const activeSession = this.resolve(ref);
@@ -520,6 +561,10 @@ export class SessionManager {
     const completionState = this.getWorktreeCompletionState(repoDir, worktreePath, branchName, baseBranch);
 
     if (completionState === "no-change") {
+      const deliverablePreview =
+        this.isPlanOrInvestigationSession(session)
+          ? this.getNoChangeDeliverablePreview(session)
+          : undefined;
       const removed = removeWorktree(repoDir, worktreePath);
       if (removed) {
         session.worktreePath = undefined;
@@ -531,13 +576,17 @@ export class SessionManager {
           });
         }
         this.dispatchSessionNotification(session, {
-          label: "worktree-no-changes",
-          userMessage: `ℹ️ [${session.name}] Session completed with no changes — worktree cleaned up`,
+          label: deliverablePreview ? "worktree-no-change-deliverable" : "worktree-no-changes",
+          userMessage: deliverablePreview
+            ? this.buildNoChangeDeliverableMessage(session, deliverablePreview, true, worktreePath)
+            : `ℹ️ [${session.name}] Session completed with no changes — worktree cleaned up`,
         });
       } else {
         this.dispatchSessionNotification(session, {
-          label: "worktree-no-changes-cleanup-failed",
-          userMessage: `⚠️ [${session.name}] Session completed with no changes, but worktree cleanup failed. Worktree still exists at ${worktreePath}`,
+          label: deliverablePreview ? "worktree-no-change-deliverable-cleanup-failed" : "worktree-no-changes-cleanup-failed",
+          userMessage: deliverablePreview
+            ? this.buildNoChangeDeliverableMessage(session, deliverablePreview, false, worktreePath)
+            : `⚠️ [${session.name}] Session completed with no changes, but worktree cleanup failed. Worktree still exists at ${worktreePath}`,
         });
       }
       return { notificationSent: true, worktreeRemoved: removed };
