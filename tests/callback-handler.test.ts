@@ -71,6 +71,69 @@ describe("createCallbackHandler()", () => {
     assert.match(state.replies[0], /^👍 Message sent to session/);
   });
 
+  it("marks request-changes immediately so stale approvals are blocked", async () => {
+    const patches: Array<Record<string, unknown>> = [];
+    setSessionManager({
+      consumeActionToken: () => ({
+        sessionId: "test-id",
+        kind: "plan-request-changes",
+        planDecisionVersion: 4,
+      }),
+      resolve: () => createStubSession({
+        id: "test-id",
+        name: "revise-me",
+        pendingPlanApproval: true,
+        approvalState: "pending",
+        planDecisionVersion: 4,
+      }),
+      getPersistedSession: () => undefined,
+      updatePersistedSession: (_ref: string, patch: Record<string, unknown>) => {
+        patches.push(patch);
+        return true;
+      },
+    } as any);
+
+    const handler = createCallbackHandler();
+    const state = createCtx("token-revise");
+    const result = await handler.handler(state.ctx as any);
+
+    assert.deepEqual(result, { handled: true });
+    assert.equal(state.buttonsCleared, 1);
+    assert.match(state.replies[0], /Type your revision feedback/);
+    assert.deepEqual(patches[0], {
+      approvalState: "changes_requested",
+      lifecycle: "awaiting_plan_decision",
+      pendingPlanApproval: true,
+      planDecisionVersion: 5,
+    });
+  });
+
+  it("rejects stale plan approval callbacks from an older plan-decision version", async () => {
+    setSessionManager({
+      consumeActionToken: () => ({
+        sessionId: "test-id",
+        kind: "plan-approve",
+        planDecisionVersion: 2,
+      }),
+      resolve: () => createStubSession({
+        id: "test-id",
+        name: "planner",
+        pendingPlanApproval: true,
+        approvalState: "pending",
+        planDecisionVersion: 3,
+      }),
+      getPersistedSession: () => undefined,
+    } as any);
+
+    const handler = createCallbackHandler();
+    const state = createCtx("token-stale-approve");
+    const result = await handler.handler(state.ctx as any);
+
+    assert.deepEqual(result, { handled: true });
+    assert.equal(state.buttonsCleared, 1);
+    assert.match(state.replies[0], /stale/i);
+  });
+
   it("resolves question-answer callbacks by session and option index", async () => {
     const resolved: Array<{ sessionId: string; optionIndex: number }> = [];
     setSessionManager({

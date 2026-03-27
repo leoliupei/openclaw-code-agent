@@ -184,6 +184,7 @@ export class Session extends EventEmitter {
   // Flags
   pendingPlanApproval: boolean = false;
   planApprovalContext?: PlanApprovalContext;
+  planDecisionVersion: number = 0;
   planFilePath?: string;
   killReason: KillReason = "unknown";
   private waitingForInputFired: boolean = false;
@@ -662,6 +663,7 @@ export class Session extends EventEmitter {
       deliveryState: this.deliveryState,
       pendingPlanApproval: this.pendingPlanApproval,
       planApprovalContext: this.planApprovalContext,
+      planDecisionVersion: this.planDecisionVersion,
       planModeApproved: this.planModeApproved,
     };
   }
@@ -684,6 +686,7 @@ export class Session extends EventEmitter {
     this.deliveryState = next.deliveryState;
     this.pendingPlanApproval = next.pendingPlanApproval;
     this.planApprovalContext = next.planApprovalContext;
+    this.planDecisionVersion = next.planDecisionVersion;
     this.planModeApproved = next.planModeApproved;
   }
 }

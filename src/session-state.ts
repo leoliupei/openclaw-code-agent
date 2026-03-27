@@ -17,6 +17,7 @@ export interface SessionControlState {
   deliveryState: SessionDeliveryState;
   pendingPlanApproval: boolean;
   planApprovalContext?: PlanApprovalContext;
+  planDecisionVersion: number;
   planModeApproved: boolean;
 }
 
@@ -50,6 +51,7 @@ export interface SessionControlPatch {
   deliveryState?: SessionDeliveryState;
   pendingPlanApproval?: boolean;
   planApprovalContext?: PlanApprovalContext;
+  planDecisionVersion?: number;
   pendingWorktreeDecisionSince?: string;
 }
 
@@ -107,13 +109,20 @@ export function reduceSessionControlState(
 
     case "plan.requested":
       if (state.planModeApproved) return state;
+      {
+        const isSamePendingPlan =
+          state.pendingPlanApproval
+          && state.approvalState === "pending"
+          && state.planApprovalContext === event.context;
       return {
         ...state,
         pendingPlanApproval: true,
         planApprovalContext: event.context,
         approvalState: "pending",
+        planDecisionVersion: isSamePendingPlan ? state.planDecisionVersion : state.planDecisionVersion + 1,
         lifecycle: "awaiting_plan_decision",
       };
+      }
 
     case "plan.cleared":
       return {
@@ -130,13 +139,17 @@ export function reduceSessionControlState(
         planApprovalContext: undefined,
         planModeApproved: true,
         approvalState: "approved",
+        planDecisionVersion: state.planDecisionVersion + 1,
         lifecycle: state.status === "running" ? "active" : state.lifecycle,
       };
 
     case "plan.changes_requested":
       return {
         ...state,
+        pendingPlanApproval: true,
         approvalState: "changes_requested",
+        planDecisionVersion: state.planDecisionVersion + 1,
+        lifecycle: "awaiting_plan_decision",
       };
 
     case "terminal.entered":
@@ -183,12 +196,13 @@ export function applySessionControlPatch(
     ...(patch.deliveryState !== undefined ? { deliveryState: patch.deliveryState } : {}),
     ...(patch.pendingPlanApproval !== undefined ? { pendingPlanApproval: patch.pendingPlanApproval } : {}),
     ...(patch.planApprovalContext !== undefined ? { planApprovalContext: patch.planApprovalContext } : {}),
+    ...(patch.planDecisionVersion !== undefined ? { planDecisionVersion: patch.planDecisionVersion } : {}),
   };
 
   if (next.pendingPlanApproval) {
     next = {
       ...next,
-      approvalState: "pending",
+      approvalState: next.approvalState === "changes_requested" ? "changes_requested" : "pending",
       lifecycle: "awaiting_plan_decision",
     };
   }

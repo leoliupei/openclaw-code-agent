@@ -32,6 +32,7 @@ function fakeSession(overrides: Record<string, any> = {}): any {
     },
     multiTurn: true,
     pendingPlanApproval: false,
+    planDecisionVersion: 0,
     getOutput: (n?: number) => [],
     kill: () => {},
     on: () => {},
@@ -764,6 +765,7 @@ describe("SessionManager turn-end wake", () => {
       name: "planner",
       status: "running",
       pendingPlanApproval: true,
+      planDecisionVersion: 7,
       planApproval: "ask",
       getOutput: () => ["Plan preview"],
     });
@@ -778,6 +780,10 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.buttons[0][0].label, "Approve");
     assert.equal(request.buttons[0][1].label, "Request changes");
     assert.equal(request.buttons[0][2].label, "Reject");
+
+    const approveTokenId = request.buttons[0][0].callbackData;
+    const approveToken = (sm as any).interactions.consumeActionToken(approveTokenId);
+    assert.equal(approveToken.planDecisionVersion, 7);
   });
 
   it("shows approval buttons for Codex plan sessions when planApproval=ask", () => {

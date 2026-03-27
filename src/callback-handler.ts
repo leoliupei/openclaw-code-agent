@@ -3,6 +3,7 @@ import { executeRespond } from "./actions/respond";
 import { makeAgentMergeTool } from "./tools/agent-merge";
 import { makeAgentPrTool } from "./tools/agent-pr";
 import { makeAgentOutputTool } from "./tools/agent-output";
+import type { PersistedSessionInfo, SessionActionKind, SessionActionToken } from "./types";
 
 /** Interactive callback namespace registered with the gateway. */
 export const CALLBACK_NAMESPACE = "code-agent";
@@ -22,6 +23,11 @@ interface TelegramCallbackContext {
 
 type InteractiveChannel = "telegram" | "discord";
 
+type PlanDecisionTarget = Pick<
+  PersistedSessionInfo,
+  "approvalState" | "name" | "pendingPlanApproval" | "planDecisionVersion"
+>;
+
 function parsePayload(payload: string): string | null {
   const tokenId = payload.trim();
   return tokenId ? tokenId : null;
@@ -39,6 +45,40 @@ function toolResultText(result: unknown): string {
     return typeof first?.text === "string" ? first.text : "(done)";
   }
   return "(done)";
+}
+
+function isPlanDecisionAction(kind: SessionActionKind): boolean {
+  return kind === "plan-approve" || kind === "plan-request-changes" || kind === "plan-reject";
+}
+
+function validatePlanDecisionToken(
+  token: SessionActionToken,
+  session: PlanDecisionTarget | undefined,
+): string | undefined {
+  if (!isPlanDecisionAction(token.kind)) return undefined;
+  if (!session) return "This plan decision is stale because the session is no longer available.";
+
+  if (
+    token.planDecisionVersion != null &&
+    session.planDecisionVersion != null &&
+    token.planDecisionVersion !== session.planDecisionVersion
+  ) {
+    return "This plan decision is stale because a newer plan review state already exists.";
+  }
+
+  if (!session.pendingPlanApproval) {
+    return "This plan is no longer awaiting approval.";
+  }
+
+  if (token.kind === "plan-approve" && session.approvalState === "changes_requested") {
+    return "Changes were already requested for this plan. Wait for the revised plan before approving.";
+  }
+
+  if (token.kind === "plan-request-changes" && session.approvalState === "changes_requested") {
+    return "Changes were already requested for this plan. Send your feedback to the agent instead.";
+  }
+
+  return undefined;
 }
 
 /**
@@ -87,6 +127,14 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
       }
 
       const sessionId = token.sessionId;
+      const actionSession = sessionManager.resolve?.(sessionId) ?? sessionManager.getPersistedSession?.(sessionId);
+      const invalidPlanDecision = validatePlanDecisionToken(token, actionSession);
+
+      if (invalidPlanDecision) {
+        await ctx.respond.clearButtons();
+        await ctx.respond.reply({ text: `⚠️ ${invalidPlanDecision}` });
+        return { handled: true };
+      }
 
       // Answer the callback query immediately: removes spinner and buttons from message.
       await ctx.respond.clearButtons();
@@ -126,7 +174,7 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "worktree-view-pr": {
-          const persisted = sessionManager.getPersistedSession(sessionId);
+          const persisted = sessionManager.getPersistedSession?.(sessionId);
           const url = token.targetUrl ?? persisted?.worktreePrUrl;
           await ctx.respond.reply({ text: url ? `PR: ${url}` : "⚠️ PR URL is no longer available." });
           break;
@@ -156,9 +204,16 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         }
 
         case "plan-request-changes": {
-          const reviseSession = sessionManager.resolve(sessionId);
-          const revisePersisted = sessionManager.getPersistedSession(sessionId);
+          const reviseSession = sessionManager.resolve?.(sessionId);
+          const revisePersisted = sessionManager.getPersistedSession?.(sessionId);
           const reviseName = reviseSession?.name ?? revisePersisted?.name ?? sessionId;
+          const planDecisionVersion = (reviseSession?.planDecisionVersion ?? revisePersisted?.planDecisionVersion ?? 0) + 1;
+          sessionManager.updatePersistedSession(sessionId, {
+            approvalState: "changes_requested",
+            lifecycle: "awaiting_plan_decision",
+            pendingPlanApproval: true,
+            planDecisionVersion,
+          });
           await ctx.respond.reply({
             text: `✏️ Type your revision feedback for [${reviseName}] and I'll forward it to the agent.`,
           });

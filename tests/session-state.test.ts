@@ -16,6 +16,7 @@ function baseState(overrides: Partial<SessionControlState> = {}): SessionControl
     deliveryState: "idle",
     pendingPlanApproval: false,
     planApprovalContext: undefined,
+    planDecisionVersion: 0,
     planModeApproved: false,
     ...overrides,
   };
@@ -44,6 +45,25 @@ describe("session-state reducer", () => {
     assert.equal(next.pendingPlanApproval, true);
     assert.equal(next.planApprovalContext, "plan-mode");
     assert.equal(next.approvalState, "pending");
+    assert.equal(next.planDecisionVersion, 1);
+    assert.equal(next.lifecycle, "awaiting_plan_decision");
+  });
+
+  it("preserves explicit changes_requested patches while plan approval is still pending", () => {
+    const next = applySessionControlPatch(baseState({
+      status: "running",
+      lifecycle: "awaiting_plan_decision",
+      approvalState: "pending",
+      pendingPlanApproval: true,
+      planDecisionVersion: 2,
+    }), {
+      approvalState: "changes_requested",
+      planDecisionVersion: 3,
+    });
+
+    assert.equal(next.pendingPlanApproval, true);
+    assert.equal(next.approvalState, "changes_requested");
+    assert.equal(next.planDecisionVersion, 3);
     assert.equal(next.lifecycle, "awaiting_plan_decision");
   });
 

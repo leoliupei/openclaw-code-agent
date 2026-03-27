@@ -84,6 +84,7 @@ export interface SessionActionToken {
   sessionId: string;
   kind: SessionActionKind;
   createdAt: number;
+  planDecisionVersion?: number;
   expiresAt?: number;
   consumedAt?: number;
   optionIndex?: number;
@@ -226,6 +227,7 @@ export interface PersistedSessionInfo {
   currentPermissionMode?: PermissionMode;
   pendingPlanApproval?: boolean;
   planApprovalContext?: PlanApprovalContext;
+  planDecisionVersion?: number;
   planApproval?: PlanApprovalMode;
   codexApprovalPolicy?: CodexApprovalPolicy;
   /** Path to the worktree if one was created. */

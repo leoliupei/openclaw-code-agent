@@ -199,6 +199,28 @@ describe("executeRespond", () => {
     assert.match(result.text, /Message sent to session/);
   });
 
+  it("blocks approve=true after plan changes were already requested", async () => {
+    const session = createStubSession({
+      status: "running",
+      lifecycle: "awaiting_plan_decision",
+      pendingPlanApproval: true,
+      approvalState: "changes_requested",
+      sendMessage: async () => {
+        throw new Error("sendMessage should not be called");
+      },
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+
+    const result = await executeRespond(sm, {
+      session: "test-id",
+      message: "Approved. Go ahead.",
+      approve: true,
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(result.text, /already requested/i);
+  });
+
   it("enforces the auto-respond safety cap for non-user replies", async () => {
     const session = createStubSession({
       status: "running",

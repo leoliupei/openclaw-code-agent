@@ -137,6 +137,7 @@ export function createStubSession(overrides: Record<string, any> = {}): any {
     harnessSessionId: undefined,
     killReason: "unknown",
     pendingPlanApproval: false,
+    planDecisionVersion: 0,
     lifecycle: "active",
     approvalState: "not_required",
     worktreeState: "none",

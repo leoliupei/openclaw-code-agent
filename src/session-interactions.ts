@@ -10,6 +10,7 @@ export type NotificationButton = { label: string; callbackData: string };
 type ButtonSource = {
   worktreePrUrl?: string;
   isExplicitlyResumable?: boolean;
+  planDecisionVersion?: number;
 };
 
 export class SessionInteractionService {
@@ -67,11 +68,17 @@ export class SessionInteractionService {
     return [buttons];
   }
 
-  getPlanApprovalButtons(sessionId: string): NotificationButton[][] {
+  getPlanApprovalButtons(sessionId: string, session?: ButtonSource): NotificationButton[][] {
     return [[
-      this.makeActionButton(sessionId, "plan-approve", "Approve"),
-      this.makeActionButton(sessionId, "plan-request-changes", "Request changes"),
-      this.makeActionButton(sessionId, "plan-reject", "Reject"),
+      this.makeActionButton(sessionId, "plan-approve", "Approve", {
+        planDecisionVersion: session?.planDecisionVersion,
+      }),
+      this.makeActionButton(sessionId, "plan-request-changes", "Request changes", {
+        planDecisionVersion: session?.planDecisionVersion,
+      }),
+      this.makeActionButton(sessionId, "plan-reject", "Reject", {
+        planDecisionVersion: session?.planDecisionVersion,
+      }),
     ]];
   }
 

@@ -1144,7 +1144,7 @@ export class SessionManager {
 
     const waitingButtons =
       isPlanApproval && planApprovalMode === "ask"
-        ? this.interactions.getPlanApprovalButtons(session.id)
+        ? this.interactions.getPlanApprovalButtons(session.id, session)
         : undefined; // omit standalone Reply buttons; direct replies already work without a callback
 
     if (isPlanApproval && planApprovalMode === "ask") {
@@ -1408,6 +1408,7 @@ export class SessionManager {
         deliveryState: patch.deliveryState,
         pendingPlanApproval: patch.pendingPlanApproval,
         planApprovalContext: patch.planApprovalContext,
+        planDecisionVersion: patch.planDecisionVersion,
         pendingWorktreeDecisionSince: patch.pendingWorktreeDecisionSince,
       });
     } else {
@@ -1418,6 +1419,7 @@ export class SessionManager {
       if (patch.deliveryState !== undefined) session.deliveryState = patch.deliveryState;
       if (patch.pendingPlanApproval !== undefined) session.pendingPlanApproval = patch.pendingPlanApproval;
       if (patch.planApprovalContext !== undefined) session.planApprovalContext = patch.planApprovalContext;
+      if (patch.planDecisionVersion !== undefined) session.planDecisionVersion = patch.planDecisionVersion;
     }
     if (patch.worktreePath !== undefined) session.worktreePath = patch.worktreePath;
     if (patch.worktreeBranch !== undefined) session.worktreeBranch = patch.worktreeBranch;

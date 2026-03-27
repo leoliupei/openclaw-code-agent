@@ -26,6 +26,11 @@ function errorMessage(err: unknown): string {
 
 type ResumableSession = Session | PersistedSessionInfo;
 
+type PlanApprovalTarget = Pick<
+  ResumableSession,
+  "approvalState" | "pendingPlanApproval" | "currentPermissionMode" | "name"
+>;
+
 function getSessionRef(session: ResumableSession): string {
   return "id" in session ? session.id : (session.sessionId ?? session.harnessSessionId);
 }
@@ -79,6 +84,21 @@ async function spawnFreshRelaunch(
 const PLAN_APPROVAL_SYSTEM_PREFIX =
   "[SYSTEM: The user has approved your plan. Exit plan mode immediately and implement the changes with full permissions. Do not ask for further confirmation.]\n\n";
 
+function approvalBlockedReason(session: PlanApprovalTarget): string | undefined {
+  if (session.approvalState === "changes_requested") {
+    return `Plan changes were already requested for session ${session.name}. Wait for the revised plan before approving.`;
+  }
+  if (session.approvalState === "rejected") {
+    return `Plan for session ${session.name} was already rejected.`;
+  }
+  return undefined;
+}
+
+function canAutoResumePlanApproval(session: PlanApprovalTarget): boolean {
+  if (approvalBlockedReason(session)) return false;
+  return !!(session.pendingPlanApproval || session.currentPermissionMode === "plan");
+}
+
 async function tryAutoResume(
   sm: SessionManager,
   session: ResumableSession,
@@ -92,10 +112,7 @@ async function tryAutoResume(
   // and prepending the system approval prefix. Without this, the resume would
   // inherit permissionMode="plan", the first turn-end would re-set
   // pendingPlanApproval=true, and Alice would be asked to approve a second time.
-  const isPlanApproval = !!(
-    options.approve &&
-    (session.pendingPlanApproval || session.currentPermissionMode === "plan")
-  );
+  const isPlanApproval = !!(options.approve && canAutoResumePlanApproval(session));
 
   try {
     const activeSession = "harnessName" in session ? session : undefined;
@@ -169,6 +186,13 @@ export async function executeRespond(
     return spawnFreshRelaunch(sm, target, params.message);
   }
 
+  if (params.approve) {
+    const blockedReason = approvalBlockedReason(target);
+    if (blockedReason) {
+      return { text: blockedReason, isError: true };
+    }
+  }
+
   const autoResumeResult = await tryAutoResume(sm, target, params.message, { approve: params.approve });
   if (autoResumeResult) {
     return autoResumeResult;
@@ -200,6 +224,13 @@ export async function executeRespond(
 
 
   try {
+    if (params.approve) {
+      const blockedReason = approvalBlockedReason(session);
+      if (blockedReason) {
+        return { text: blockedReason, isError: true };
+      }
+    }
+
     let redirectedActiveTurn = false;
     if (params.interrupt) {
       redirectedActiveTurn = await session.interrupt();
