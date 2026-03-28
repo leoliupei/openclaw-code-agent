@@ -921,6 +921,39 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.buttons[0][2].label, "Reject");
   });
 
+  it("reuses plan approval buttons when delegated review escalates back to the user", () => {
+    const s = fakeSession({
+      id: "s-plan-escalate",
+      name: "plan-escalate",
+      status: "running",
+      pendingPlanApproval: true,
+      planDecisionVersion: 9,
+    });
+    (sm as any).sessions.set(s.id, s);
+    stubDispatch(sm);
+
+    const result = sm.requestPlanApprovalFromUser(
+      s.id,
+      "Summary:\n- Touches `src/session-manager.ts`\n- Risk: medium because approval routing changes\n- Scope matches original task",
+    );
+
+    assert.match(result, /Plan approval requested from the user/);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "plan-approval");
+    assert.match(request.userMessage, /Plan needs your decision/);
+    assert.match(request.userMessage, /Risk: medium/);
+    assert.deepEqual(
+      request.buttons.map((row: Array<{ label: string }>) => row.map((button) => button.label)),
+      [["Approve", "Revise", "Reject"]],
+    );
+
+    const approveToken = (sm as any).interactions.consumeActionToken(request.buttons[0][0].callbackData);
+    assert.equal(approveToken?.planDecisionVersion, 9);
+  });
+
   it("routes bypass-permissions 'should I continue?' prompts through generic waiting only", () => {
     const s = fakeSession({
       id: "s-continue",

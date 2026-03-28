@@ -395,6 +395,47 @@ export class SessionManager {
     this.notifications.notifyWorktreeOutcome(sessionOrPersisted as Session, outcomeLine);
   }
 
+  requestPlanApprovalFromUser(ref: string, summary: string): string {
+    const trimmedSummary = summary.trim();
+    if (!trimmedSummary) return "Error: summary must not be empty.";
+
+    const activeSession = this.resolve(ref);
+    const persistedSession = activeSession ? undefined : this.getPersistedSession(ref);
+    const session = activeSession ?? persistedSession;
+    if (!session) return `Error: Session "${ref}" not found.`;
+    if (!session.pendingPlanApproval) {
+      return `Error: Session "${ref}" is not awaiting plan approval.`;
+    }
+
+    const sessionId = getPrimarySessionLookupRef(activeSession ?? persistedSession ?? { id: ref }) ?? ref;
+    const buttons = this.interactions.getPlanApprovalButtons(sessionId, session);
+    const message = [
+      `📋 [${session.name}] Plan needs your decision:`,
+      ``,
+      trimmedSummary,
+      ``,
+      `Choose Approve, Revise, or Reject below.`,
+    ].join("\n");
+
+    this.notifications.dispatch(
+      this.buildRoutingProxy({
+        id: sessionId,
+        sessionId: persistedSession?.sessionId,
+        harnessSessionId: activeSession?.harnessSessionId ?? persistedSession?.harnessSessionId,
+        backendRef: activeSession?.backendRef ?? persistedSession?.backendRef,
+        route: activeSession?.route ?? persistedSession?.route,
+      }),
+      {
+        label: "plan-approval",
+        userMessage: message,
+        notifyUser: "always",
+        buttons,
+      },
+    );
+
+    return `Plan approval requested from the user for session ${session.name} [${sessionId}].`;
+  }
+
   private buildRoutingProxy(session: {
     id?: string;
     sessionId?: string;

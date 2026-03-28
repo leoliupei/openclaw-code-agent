@@ -30,6 +30,23 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessage, /USER APPROVAL REQUESTED/);
   });
 
+  it("instructs delegated plan reviews to use the buttoned approval prompt", () => {
+    const payload = buildWaitingForInputPayload({
+      session: {
+        id: "session-delegate",
+        name: "delegate-session",
+        multiTurn: true,
+        pendingPlanApproval: true,
+      } as any,
+      preview: "Plan preview",
+      originThreadLine: "Origin thread: telegram topic 42",
+      planApprovalMode: "delegate",
+    });
+
+    assert.match(payload.wakeMessage, /agent_request_plan_approval\(session='session-delegate'/);
+    assert.match(payload.wakeMessage, /Do NOT send a plain-text-only approval request/);
+  });
+
   it("preserves terminal completion payload formatting", () => {
     const payload = buildCompletedPayload({
       session: {
