@@ -94,7 +94,7 @@ export class SessionInteractionService {
       this.makeActionButton(sessionId, "plan-approve", "Approve", {
         planDecisionVersion: session?.planDecisionVersion,
       }),
-      this.makeActionButton(sessionId, "plan-request-changes", "Request changes", {
+      this.makeActionButton(sessionId, "plan-request-changes", "Revise", {
         planDecisionVersion: session?.planDecisionVersion,
       }),
       this.makeActionButton(sessionId, "plan-reject", "Reject", {

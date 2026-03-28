@@ -98,7 +98,7 @@ Allowed-model matching is case-insensitive substring matching. If the resolved m
 | `delegate` | Wake the orchestrator with the full plan and let it decide whether to approve or escalate |
 | `approve` | Auto-approve after verification |
 
-In `ask`, the plugin sends action buttons for `Approve`, `Reject`, and `Request changes` when interactive callbacks are available. The same flow still works through plain replies.
+In `ask`, the plugin sends action buttons for `Approve`, `Revise`, and `Reject` when interactive callbacks are available. The same flow still works through plain replies.
 
 ## Worktree Strategies
 

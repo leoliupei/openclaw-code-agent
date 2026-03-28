@@ -827,7 +827,7 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.label, "plan-approval");
     assert.match(request.userMessage, /Plan ready for approval/);
     assert.equal(request.buttons[0][0].label, "Approve");
-    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][1].label, "Revise");
     assert.equal(request.buttons[0][2].label, "Reject");
 
     const approveTokenId = request.buttons[0][0].callbackData;
@@ -853,7 +853,7 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
     assert.equal(request.buttons[0][0].label, "Approve");
-    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][1].label, "Revise");
     assert.equal(request.buttons[0][2].label, "Reject");
   });
 
@@ -917,7 +917,7 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "plan-approval");
     assert.equal(request.buttons[0][0].label, "Approve");
-    assert.equal(request.buttons[0][1].label, "Request changes");
+    assert.equal(request.buttons[0][1].label, "Revise");
     assert.equal(request.buttons[0][2].label, "Reject");
   });
 
@@ -1032,7 +1032,7 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.label, "plan-approval");
     assert.deepEqual(
       request.buttons.map((row: Array<{ label: string }>) => row.map((button) => button.label)),
-      [["Approve", "Request changes", "Reject"]],
+      [["Approve", "Revise", "Reject"]],
     );
   });
 });
@@ -1093,7 +1093,7 @@ describe("SessionManager restored button parity", () => {
       planDecisionVersion: 4,
     });
 
-    assert.deepEqual(buttonLabels(buttons), [["Approve", "Request changes", "Reject"]]);
+    assert.deepEqual(buttonLabels(buttons), [["Approve", "Revise", "Reject"]]);
     const approveToken = (sm as any).interactions.consumeActionToken(buttons[0][0].callbackData);
     assert.equal(approveToken?.planDecisionVersion, 4);
   });

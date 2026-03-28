@@ -180,7 +180,7 @@ export class Session extends EventEmitter {
       : undefined;
     // Keep currentPermissionMode in sync with permissionMode for all harnesses.
     // The structured backend contract still uses plugin-owned plan state so
-    // Approve/Reject/Revise buttons fire consistently across backends.
+    // Approve/Revise/Reject buttons fire consistently across backends.
     this.currentPermissionMode = this.permissionMode;
     this.originChannel = config.originChannel;
     this.originThreadId = config.originThreadId;

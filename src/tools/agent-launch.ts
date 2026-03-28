@@ -108,7 +108,7 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
       plan_approval: Type.Optional(
         Type.Union(
           [Type.Literal("ask"), Type.Literal("delegate"), Type.Literal("approve")],
-          { description: "Plan approval policy for this session: 'ask' (show Approve/Reject/Revise buttons), 'delegate' (orchestrator decides), 'approve' (auto-approve). Overrides the plugin-level planApproval setting." },
+          { description: "Plan approval policy for this session: 'ask' (show Approve/Revise/Reject buttons), 'delegate' (orchestrator decides), 'approve' (auto-approve). Overrides the plugin-level planApproval setting." },
         ),
       ),
       harness: Type.Optional(
