@@ -311,7 +311,7 @@ describe("Session output buffer overflow", () => {
     const session = await startSession();
 
     for (let i = 0; i < 2010; i++) {
-      fakeHarness.pushMessage({ type: "text", text: `line-${i}` });
+      fakeHarness.pushMessage({ type: "text", text: i === 2009 ? `line-${i}` : `line-${i}\n` });
     }
     await tick(200);
 
