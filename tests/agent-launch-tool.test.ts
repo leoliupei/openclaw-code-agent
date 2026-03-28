@@ -93,6 +93,31 @@ describe("agent_launch tool defaults", () => {
     assert.equal(spawnConfig?.codexApprovalPolicy, "never");
   });
 
+  it("passes the resolved permission mode into spawn when the caller omits permission_mode", async () => {
+    let spawnConfig: Record<string, unknown> | undefined;
+    setPluginConfig({
+      permissionMode: "bypassPermissions",
+    });
+
+    setSessionManager({
+      resolveHarnessSessionId: (id: string) => id,
+      spawn(config: Record<string, unknown>) {
+        spawnConfig = config;
+        return {
+          id: "sess-permission-mode",
+          name: "resolved-permission-mode",
+          model: config.model,
+        };
+      },
+    } as any);
+
+    const tool = makeAgentLaunchTool({ workspaceDir: "/tmp" });
+    await tool.execute("tool-id", { prompt: "Inspect only" });
+
+    assert.ok(spawnConfig, "spawn should be called");
+    assert.equal(spawnConfig?.permissionMode, "bypassPermissions");
+  });
+
   it("captures Telegram group chat and topic metadata from tool context", async () => {
     let spawnConfig: Record<string, unknown> | undefined;
 

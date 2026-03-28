@@ -285,10 +285,22 @@ export async function requestWithFallbacks(params: {
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-export function buildThreadStartPayloads(params: { cwd: string; model?: string }): unknown[] {
+export function buildThreadStartPayloads(params: {
+  cwd: string;
+  model?: string;
+  approvalPolicy?: string;
+  sandbox?: string;
+}): unknown[] {
+  const base: Record<string, unknown> = { cwd: params.cwd };
+  if (params.model?.trim()) base.model = params.model.trim();
+  if (params.approvalPolicy?.trim()) base.approvalPolicy = params.approvalPolicy.trim();
+  if (params.sandbox?.trim()) base.sandbox = params.sandbox.trim();
+  const fallback: Record<string, unknown> = { cwd: params.cwd };
+  if (params.approvalPolicy?.trim()) fallback.approvalPolicy = params.approvalPolicy.trim();
+  if (params.sandbox?.trim()) fallback.sandbox = params.sandbox.trim();
   return [
-    { cwd: params.cwd, model: params.model },
-    { cwd: params.cwd },
+    base,
+    fallback,
     {},
   ];
 }
@@ -435,12 +447,13 @@ export function isInteractiveServerRequest(method: string): boolean {
   return normalized.includes("requestuserinput") || normalized.includes("requestapproval");
 }
 
-export function approvalPolicyForMode(mode: string | undefined, codexApprovalPolicy?: string): string | undefined {
-  if (mode === "bypassPermissions") return "never";
-  return codexApprovalPolicy?.trim() || "on-request";
-}
-
-export function sandboxForMode(mode: string | undefined): string | undefined {
-  if (mode === "bypassPermissions") return "danger-full-access";
-  return undefined;
+export function codexExecutionPolicyForMode(
+  mode: string | undefined,
+  codexApprovalPolicy?: string,
+): { approvalPolicy?: string; sandbox?: string } {
+  const approvalPolicy = mode === "bypassPermissions"
+    ? "never"
+    : (codexApprovalPolicy?.trim() || "on-request");
+  const sandbox = approvalPolicy === "never" ? "danger-full-access" : undefined;
+  return { approvalPolicy, sandbox };
 }

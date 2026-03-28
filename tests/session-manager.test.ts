@@ -802,7 +802,8 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.buttons, undefined);
     assert.equal(request.notifyUser, "always");
     assert.match(request.userMessage, /❓ \[waiter\] Question waiting for reply/);
-    assert.match(request.wakeMessage, /genuine user reply/i);
+    assert.equal(request.wakeMessage, undefined);
+    assert.match(request.wakeMessageOnNotifyFailed, /genuine user reply/i);
   });
 
   it("uses session planApproval override for plan approval buttons", () => {
@@ -937,7 +938,35 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "waiting");
     assert.equal(request.buttons, undefined);
+    assert.equal(request.wakeMessage, undefined);
+    assert.match(request.wakeMessageOnNotifyFailed, /Follow your auto-respond rules strictly/);
     assert.doesNotMatch(request.userMessage, /Plan ready for approval/);
+  });
+
+  it("sends waiting questions as a single user notification with wake fallback only", () => {
+    const s = fakeSession({
+      id: "s-pending-input",
+      name: "pending-input-session",
+      status: "running",
+      pendingPlanApproval: false,
+      pendingInputState: {
+        requestId: "req-1",
+        kind: "approval",
+        promptText: "Do you want to allow read-only workspace inspection so I can gather the files needed for the investigation memo?",
+        options: ["Allow", "Deny"],
+      },
+      getOutput: () => ["Do you want to allow read-only workspace inspection so I can gather the files needed for the investigation memo?"],
+    });
+
+    (sm as any).triggerWaitingForInputEvent(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "waiting");
+    assert.equal(request.wakeMessage, undefined);
+    assert.match(request.userMessage, /allow read-only workspace inspection/);
+    assert.match(request.wakeMessageOnNotifyFailed, /allow read-only workspace inspection/);
   });
 
   it("keeps plan approval routing ahead of worktree delegate suppression", () => {

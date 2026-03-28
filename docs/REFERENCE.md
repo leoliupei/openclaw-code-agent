@@ -10,7 +10,7 @@ Canonical operator reference for `openclaw-code-agent`: install, configuration, 
 | `harnesses.claude-code.defaultModel` | `sonnet` |
 | `harnesses.codex.defaultModel` | `gpt-5.4` |
 | `harnesses.codex.reasoningEffort` | `medium` |
-| `harnesses.codex.approvalPolicy` | `on-request` |
+| `harnesses.codex.approvalPolicy` | `never` |
 | `permissionMode` | `plan` |
 | `planApproval` | `ask` |
 | `defaultWorktreeStrategy` | `ask` |
@@ -56,7 +56,7 @@ Add this under `plugins.entries["openclaw-code-agent"]` in `~/.openclaw/openclaw
         "defaultModel": "gpt-5.4",
         "allowedModels": ["gpt-5.4"],
         "reasoningEffort": "medium",
-        "approvalPolicy": "on-request"
+        "approvalPolicy": "never"
       }
     }
   }

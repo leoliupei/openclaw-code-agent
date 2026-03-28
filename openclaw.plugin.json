@@ -21,7 +21,7 @@
               "gpt-5.4"
             ],
             "reasoningEffort": "medium",
-            "approvalPolicy": "on-request"
+            "approvalPolicy": "never"
           },
           "claude-code": {
             "defaultModel": "sonnet",
@@ -118,12 +118,12 @@
       },
       "codexApprovalPolicy": {
         "type": "string",
-        "default": "on-request",
+        "default": "never",
         "enum": [
           "never",
           "on-request"
         ],
-        "description": "Codex-only SDK/CLI approval policy. Defaults to 'on-request'. Set to 'never' to keep Codex from requesting approval for privileged actions. Distinct from plugin permissionMode / plan orchestration."
+        "description": "Codex-only SDK/CLI approval policy. Defaults to 'never'. Set to 'on-request' to re-enable interactive approval prompts for privileged actions. Distinct from plugin permissionMode / plan orchestration."
       },
       "agentChannels": {
         "type": "object",
@@ -190,7 +190,7 @@
     },
     "harnesses": {
       "label": "Harness configuration",
-      "help": "Per-harness defaults and model restrictions. Default: {\"codex\":{\"defaultModel\":\"gpt-5.4\",\"allowedModels\":[\"gpt-5.4\"],\"reasoningEffort\":\"medium\",\"approvalPolicy\":\"on-request\"},\"claude-code\":{\"defaultModel\":\"sonnet\",\"allowedModels\":[\"sonnet\",\"opus\"]}}."
+      "help": "Per-harness defaults and model restrictions. Default: {\"codex\":{\"defaultModel\":\"gpt-5.4\",\"allowedModels\":[\"gpt-5.4\"],\"reasoningEffort\":\"medium\",\"approvalPolicy\":\"never\"},\"claude-code\":{\"defaultModel\":\"sonnet\",\"allowedModels\":[\"sonnet\",\"opus\"]}}."
     },
     "defaultModel": {
       "label": "Legacy default model",

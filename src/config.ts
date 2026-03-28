@@ -31,7 +31,7 @@ const BUILTIN_HARNESS_CONFIGS: Record<string, HarnessConfig> = {
     defaultModel: "gpt-5.4",
     allowedModels: ["gpt-5.4"],
     reasoningEffort: "medium",
-    approvalPolicy: "on-request",
+    approvalPolicy: "never",
   },
 };
 
@@ -58,7 +58,7 @@ export let pluginConfig: PluginConfig = {
   maxAutoResponds: 10,
   permissionMode: "plan",
   planApproval: "delegate",
-  codexApprovalPolicy: "on-request",
+  codexApprovalPolicy: "never",
   harnesses: {
     "claude-code": { ...BUILTIN_HARNESS_CONFIGS["claude-code"] },
     codex: { ...BUILTIN_HARNESS_CONFIGS.codex },
@@ -155,7 +155,7 @@ export function setPluginConfig(config: Partial<RawPluginConfig>): void {
     agentChannels: config.agentChannels,
     maxAutoResponds: config.maxAutoResponds ?? 10,
     permissionMode: config.permissionMode ?? "plan",
-    codexApprovalPolicy: config.codexApprovalPolicy ?? "on-request",
+    codexApprovalPolicy: config.codexApprovalPolicy ?? "never",
     planApproval: config.planApproval ?? "delegate",
     defaultHarness,
     harnesses,

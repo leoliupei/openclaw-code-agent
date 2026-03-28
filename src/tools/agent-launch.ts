@@ -171,8 +171,8 @@ export function makeAgentLaunchTool(ctx: OpenClawPluginToolContext) {
           resumeWorktreeFrom: resolvedResumeId,
           forkSession: resumeSessionId ? params.fork_session : false,
           multiTurn: true,
-          permissionMode: params.permission_mode,
-          planApproval: params.plan_approval,
+          permissionMode,
+          planApproval,
           codexApprovalPolicy: harness === "codex"
             ? (resolveApprovalPolicyForHarness(harness) ?? pluginConfig.codexApprovalPolicy)
             : undefined,

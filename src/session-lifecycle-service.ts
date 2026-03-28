@@ -222,12 +222,23 @@ export class SessionLifecycleService {
       return;
     }
 
+    if (payload.label === "plan-approval") {
+      this.deps.dispatchSessionNotification(session, {
+        label: payload.label,
+        userMessage: payload.userMessage,
+        wakeMessage: payload.wakeMessage,
+        notifyUser: "always",
+        buttons: payload.buttons,
+      });
+      return;
+    }
+
     this.deps.dispatchSessionNotification(session, {
       label: payload.label,
       userMessage: payload.userMessage,
-      wakeMessage: payload.wakeMessage,
       notifyUser: "always",
       buttons: payload.buttons,
+      wakeMessageOnNotifyFailed: payload.wakeMessage,
     });
   }
 

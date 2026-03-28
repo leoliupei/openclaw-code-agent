@@ -26,12 +26,12 @@ import {
   HarnessMessageQueue,
 } from "./harness-events";
 import {
-  approvalPolicyForMode,
   buildPendingInputState,
   buildThreadResumePayloads,
   buildThreadStartPayloads,
   buildTurnInterruptPayloads,
   buildTurnStartPayloads,
+  codexExecutionPolicyForMode,
   deriveWorktreeIdFromPath,
   extractAssistantNotificationText,
   extractCompletedPlanText,
@@ -45,7 +45,6 @@ import {
   normalizeTerminalStatus,
   parseCsvEnv,
   requestWithFallbacks,
-  sandboxForMode,
 } from "./codex-protocol";
 
 interface CodexHarnessDeps {
@@ -289,6 +288,10 @@ export class CodexHarness implements AgentHarness {
     };
 
     const ensureThread = async (): Promise<void> => {
+      const executionPolicy = codexExecutionPolicyForMode(
+        currentPermissionMode,
+        options.codexApprovalPolicy,
+      );
       if (threadId) {
         const resumed = await requestWithFallbacks({
           client,
@@ -297,8 +300,8 @@ export class CodexHarness implements AgentHarness {
             threadId,
             model: options.model,
             reasoningEffort: options.reasoningEffort,
-            approvalPolicy: approvalPolicyForMode(currentPermissionMode, options.codexApprovalPolicy),
-            sandbox: sandboxForMode(currentPermissionMode),
+            approvalPolicy: executionPolicy.approvalPolicy,
+            sandbox: executionPolicy.sandbox,
           }),
           timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
         });
@@ -315,6 +318,8 @@ export class CodexHarness implements AgentHarness {
         payloads: buildThreadStartPayloads({
           cwd: options.originalWorkdir?.trim() || options.cwd,
           model: options.model,
+          approvalPolicy: executionPolicy.approvalPolicy,
+          sandbox: executionPolicy.sandbox,
         }),
         timeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
       });
