@@ -281,7 +281,7 @@ export class CodexHarness implements AgentHarness {
       await client.connect();
       await client.request("initialize", {
         protocolVersion: DEFAULT_PROTOCOL_VERSION,
-        clientInfo: { name: "openclaw-code-agent", version: "3.5.0" },
+        clientInfo: { name: "openclaw-code-agent", version: "3.1.0" },
         capabilities: { experimentalApi: true },
       }, DEFAULT_REQUEST_TIMEOUT_MS);
       await client.notify("initialized", {});

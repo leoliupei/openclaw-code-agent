@@ -7,17 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [3.5.0] - 2026-03-25
+## [3.1.0] - 2026-03-28
 
 ### Breaking Changes
 
+- Removed `multi_turn_disabled`; sessions are now multi-turn by default and no longer carry the old single-turn compatibility path.
+- Changed worktree completion into an explicit pending-decision lifecycle for the newer review flows, including merge, PR, snooze, and dismiss outcomes.
+- Expanded the public `worktree_strategy` surface to include `delegate`, which callers with pinned enums or schema validation must now accept.
 - Persisted session storage is now new-schema-only. Older or invalid stores are archived to timestamped `.legacy-*.json` backups and are not migrated in place.
+
+### Added
+
+- Cross-repo PR targeting via `worktree_pr_target_repo`.
+- Richer worktree decision state, including snooze / dismiss actions, PR-open tracking, and clearer merge-or-PR follow-through.
+- A 4-button review flow for worktree decisions: `Merge locally`, `Create PR`, `Decide later`, and `Dismiss`.
+- Bounded Codex semantic adapter for structured backend interaction.
 
 ### Changed
 
 - Rewrote the control plane around explicit lifecycle, approval, runtime, delivery, and worktree state instead of heuristic status handling.
 - Made resume behavior explicit: suspended sessions are resumable, launches are resume-first for linked sessions, and terminal sessions are no longer implicitly revived.
 - Hardened notification delivery and split the wake pipeline into clearer route-resolution, delivery, and transport responsibilities.
+- Stopped auto-pushing worktree branches by default; branches remain local until an explicit merge, push, or PR path chooses to publish them.
+- Replaced Codex SDK with app-server backend.
 - Standardized local and CI validation on `pnpm verify`.
 
 ### Fixed
@@ -25,37 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed plugin-side natural-language heuristics for waiting, planning, and worktree decisions in favor of explicit state and structured routing.
 - Fixed worktree merge, cleanup, PR follow-through, and pending-decision handling so worktrees are preserved or cleaned up deterministically.
 - Aligned Telegram and Discord interactive callbacks behind the same action-token model and tightened notification retry / shutdown behavior.
-
-### Docs
-
-- Rewrote the operator reference, aligned README messaging with the maintenance release, and normalized the full historical changelog.
-
-## [3.1.0] - 2026-03-25
-
-### Breaking Changes
-
-- Removed `multi_turn_disabled`; sessions are now multi-turn by default and no longer carry the old single-turn compatibility path.
-- Changed worktree completion into an explicit pending-decision lifecycle for the newer review flows, including merge, PR, snooze, and dismiss outcomes.
-- Expanded the public `worktree_strategy` surface to include `delegate`, which callers with pinned enums or schema validation must now accept.
-
-### Added
-
-- Cross-repo PR targeting via `worktree_pr_target_repo`.
-- Richer worktree decision state, including snooze / dismiss actions, PR-open tracking, and clearer merge-or-PR follow-through.
-- A 4-button review flow for worktree decisions: `Merge locally`, `Create PR`, `Decide later`, and `Dismiss`.
-
-### Changed
-
-- Stopped auto-pushing worktree branches by default; branches remain local until an explicit merge, push, or PR path chooses to publish them.
-- Consolidated the worktree review flow so ask/delegate decisions are routed through the same explicit completion lifecycle.
-- Refreshed the operational docs and skill guidance around worktree review and resume-first orchestration.
-
-### Fixed
-
 - Codex plan approval, reply forwarding, and worktree preamble behavior for plan-first sessions.
 - Codex auth bootstrap so isolated homes live under OpenClaw state instead of temp paths.
 - `agent_output` streaming for active sessions and conflict-resolver harness selection.
 - Delegate-button routing, branch-decision messaging, and commit-misdirection reporting in worktree flows.
+- Plan approval escalation, stale approval blocking, and idle-timeout button display.
+- Streamed session output line buffering.
+- Interactive notification fallback handling.
+- Auto-resume for dead plan approvals.
+- Killed-session resume behavior.
+- Notification output previews now show the beginning of the output instead of the tail.
+
+### Docs
+
+- Rewrote the operator reference, aligned README messaging with the maintenance release, and normalized the full historical changelog.
 
 ## [3.0.0] - 2026-03-25
 
@@ -155,8 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default Codex approval policy to `on-request`.
 - Raised the default session limit.
 
-[Unreleased]: https://github.com/goldmar/openclaw-code-agent/compare/v3.5.0...HEAD
-[3.5.0]: https://github.com/goldmar/openclaw-code-agent/compare/v3.1.0...v3.5.0
+[Unreleased]: https://github.com/goldmar/openclaw-code-agent/compare/v3.1.0...HEAD
 [3.1.0]: https://github.com/goldmar/openclaw-code-agent/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/goldmar/openclaw-code-agent/compare/v2.4.0...v3.0.0
 [2.4.0]: https://github.com/goldmar/openclaw-code-agent/compare/v2.3.1...v2.4.0

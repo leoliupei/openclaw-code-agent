@@ -109,9 +109,9 @@ For multi-workspace or multi-bot setups, configure `agentChannels`. The full rou
 
 Prefer fully routable channel strings such as `telegram|123456789` or `telegram|my-bot|123456789`. A bare provider like `telegram` is only a weak fallback; the plugin now repairs topic routing from `originSessionKey` when possible, but explicit channels are still the safer default.
 
-### Upgrade Note For 3.5.0
+### Upgrade Note For 3.1.0
 
-`3.5.0` is a maintenance release focused on reliability, explicit session state, and release-tooling hardening.
+`3.1.0` is a maintenance release focused on reliability, explicit session state, and release-tooling hardening.
 
 - Upgrading archives old or invalid persisted session stores to a timestamped `.legacy-*.json` backup and starts with a fresh index.
 - Legacy Codex SDK session entries are archived and not loaded by the App Server backend.
