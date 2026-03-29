@@ -71,7 +71,7 @@ describe("createCallbackHandler()", () => {
 
     assert.deepEqual(result, { handled: true });
     assert.equal(switchedTo, "bypassPermissions");
-    assert.match(state.replies[0], /^👍 Message sent to session/);
+    assert.deepEqual(state.replies, []);
   });
 
   it("marks request-changes immediately so stale approvals are blocked", async () => {

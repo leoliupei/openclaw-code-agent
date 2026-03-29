@@ -181,6 +181,9 @@ async function tryAutoResume(
     const resumed = await sm.spawnAndAwaitRunning(resumeConfig, { notifyLaunch: false });
     if (isPlanApproval) {
       sm.notifySession(resumed, `👍 [${resumed.name}] Plan approved (resumed)`, "plan-approved");
+      return {
+        text: `Plan approved for session ${resumed.name} [${resumed.id}]. Session resumed in bypassPermissions mode. Use agent_output to see the response.`,
+      };
     } else {
       sm.notifySession(resumed, `▶️ [${resumed.name}] Auto-resumed`);
     }
@@ -306,6 +309,11 @@ export async function executeRespond(
     }
 
     const msgSummary = truncateText(params.message, 80);
+    if (isPlanApproval) {
+      return {
+        text: `Plan approved for session ${session.name} [${session.id}]. Use agent_output to see the response.`,
+      };
+    }
 
     return {
       text: [

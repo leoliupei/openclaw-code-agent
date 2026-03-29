@@ -22,7 +22,7 @@ describe("agent_request_plan_approval tool", () => {
     setSessionManager({
       requestPlanApprovalFromUser(session: string, summary: string) {
         calls.push({ session, summary });
-        return "Plan approval requested from the user for session test [s1].";
+        return "Canonical plan approval prompt sent for session test [s1]. Wait for the user's Approve, Revise, or Reject response. Do not send a separate plain-text approval message.";
       },
     } as SessionManager);
 
@@ -34,6 +34,6 @@ describe("agent_request_plan_approval tool", () => {
 
     assert.deepEqual(calls, [{ session: "s1", summary: "Risk: low\nScope: in bounds" }]);
     assert.equal((result as any).isError, false);
-    assert.match((result as any).content?.[0]?.text ?? "", /Plan approval requested from the user/);
+    assert.match((result as any).content?.[0]?.text ?? "", /Canonical plan approval prompt sent/);
   });
 });

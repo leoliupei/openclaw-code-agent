@@ -965,7 +965,8 @@ describe("SessionManager turn-end wake", () => {
       "Summary:\n- Touches `src/session-manager.ts`\n- Risk: medium because approval routing changes\n- Scope matches original task",
     );
 
-    assert.match(result, /Plan approval requested from the user/);
+    assert.match(result, /Canonical plan approval prompt sent/);
+    assert.match(result, /Do not send a separate plain-text approval message/);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);

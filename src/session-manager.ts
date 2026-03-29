@@ -437,7 +437,11 @@ export class SessionManager {
       },
     );
 
-    return `Plan approval requested from the user for session ${session.name} [${sessionId}].`;
+    return [
+      `Canonical plan approval prompt sent for session ${session.name} [${sessionId}].`,
+      `Wait for the user's Approve, Revise, or Reject response.`,
+      `Do not send a separate plain-text approval message.`,
+    ].join(" ");
   }
 
   private buildRoutingProxy(session: {

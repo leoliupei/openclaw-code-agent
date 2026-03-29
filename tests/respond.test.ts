@@ -88,7 +88,7 @@ describe("executeRespond", () => {
     };
 
     const result = await executeRespond(sm, { session: "test-id", message: "continue" });
-    assert.ok(result.text.includes("Auto-resumed"));
+    assert.match(result.text, /Auto-resumed session/);
     assert.equal(capturedConfig.harness, "codex");
     assert.equal(capturedConfig.originSessionKey, "agent:main:telegram:group:123:topic:42");
     assert.equal(capturedConfig.originChannel, "telegram|bot|123");
@@ -133,7 +133,7 @@ describe("executeRespond", () => {
     };
 
     const result = await executeRespond(sm, { session: "test-id", message: "continue implementation" });
-    assert.ok(result.text.includes("Auto-resumed"));
+    assert.match(result.text, /Auto-resumed session/);
     assert.equal(capturedConfig.resumeSessionId, "thread-codex-complete");
     assert.equal(capturedConfig.sessionIdOverride, "test-id");
   });
@@ -188,7 +188,7 @@ describe("executeRespond", () => {
       approve: true,
     });
 
-    assert.ok(result.text.includes("Auto-resumed"));
+    assert.match(result.text, /Plan approved for session/);
     assert.equal(capturedConfig.permissionMode, "bypassPermissions");
     assert.match(capturedConfig.prompt, /The user has approved your plan/i);
     assert.equal(capturedConfig.sessionIdOverride, "dead-plan");
@@ -225,7 +225,7 @@ describe("executeRespond", () => {
       approve: true,
     });
 
-    assert.ok(result.text.includes("Auto-resumed"));
+    assert.match(result.text, /Plan approved for session/);
     assert.equal(capturedConfig.resumeSessionId, "harness-plan-shutdown");
     assert.equal(capturedConfig.permissionMode, "bypassPermissions");
     assert.match(capturedConfig.prompt, /The user has approved your plan/i);
@@ -301,7 +301,7 @@ describe("executeRespond", () => {
 
     assert.equal(switchedTo, "bypassPermissions");
     assert.equal(result.isError, undefined);
-    assert.match(result.text, /Message sent to session/);
+    assert.match(result.text, /Plan approved for session/);
   });
 
   it("blocks approve=true after plan changes were already requested", async () => {

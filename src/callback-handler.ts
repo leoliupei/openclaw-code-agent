@@ -213,7 +213,9 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
             approve: true,
             userInitiated: true,
           });
-          await ctx.respond.reply({ text: result.isError ? `⚠️ ${result.text}` : `👍 ${result.text}` });
+          if (result.isError) {
+            await ctx.respond.reply({ text: `⚠️ ${result.text}` });
+          }
           break;
         }
 
