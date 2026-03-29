@@ -3,7 +3,6 @@ import type { NotificationButton } from "./session-interactions";
 import type { PersistedSessionInfo } from "./types";
 import type { SessionNotificationRequest } from "./wake-dispatcher";
 import type { WorktreeCompletionState } from "./session-worktree-controller";
-import type { EmbeddedEvalResult } from "./embedded-eval";
 import { SessionWorktreeMessageService } from "./session-worktree-message-service";
 import { getPersistedMutationRefs, getPrimarySessionLookupRef, usesNativeBackendWorktree } from "./session-backend-ref";
 import { SessionWorktreeActionService } from "./session-worktree-action-service";
@@ -38,14 +37,6 @@ export class SessionWorktreeStrategyService {
         branchName: string,
         baseBranch: string,
       ) => WorktreeCompletionState;
-      classifyNoChangeDeliverable: (context: {
-        harnessName: string;
-        sessionName: string;
-        prompt: string;
-        workdir: string;
-        agentId?: string;
-        outputText: string;
-      }) => Promise<EmbeddedEvalResult>;
       updatePersistedSession: (ref: string, patch: Partial<PersistedSessionInfo>) => boolean;
       dispatchSessionNotification: (session: Session, request: SessionNotificationRequest) => void;
       getWorktreeDecisionButtons: (sessionId: string) => NotificationButton[][] | undefined;
@@ -65,7 +56,6 @@ export class SessionWorktreeStrategyService {
       isAlreadyMerged: deps.isAlreadyMerged,
       resolveWorktreeRepoDir: deps.resolveWorktreeRepoDir,
       getWorktreeCompletionState: deps.getWorktreeCompletionState,
-      classifyNoChangeDeliverable: deps.classifyNoChangeDeliverable,
     });
   }
 
@@ -100,7 +90,6 @@ export class SessionWorktreeStrategyService {
         session,
         action.repoDir,
         action.worktreePath,
-        action.deliverablePreview,
         action.nativeBackendWorktree,
       );
     }
@@ -133,7 +122,6 @@ export class SessionWorktreeStrategyService {
     session: Session,
     repoDir: string,
     worktreePath: string,
-    deliverablePreview?: string,
     nativeBackendWorktree: boolean = usesNativeBackendWorktree(session),
   ): Promise<WorktreeStrategyResult> {
     const removed = nativeBackendWorktree
@@ -148,7 +136,6 @@ export class SessionWorktreeStrategyService {
       });
       this.deps.dispatchSessionNotification(session, this.deps.worktreeMessages.buildNoChangeNotification({
         session,
-        deliverablePreview,
         nativeBackendWorktree,
         cleanupSucceeded: true,
         worktreePath,
@@ -156,7 +143,6 @@ export class SessionWorktreeStrategyService {
     } else {
       this.deps.dispatchSessionNotification(session, this.deps.worktreeMessages.buildNoChangeNotification({
         session,
-        deliverablePreview,
         nativeBackendWorktree,
         cleanupSucceeded: false,
         worktreePath,

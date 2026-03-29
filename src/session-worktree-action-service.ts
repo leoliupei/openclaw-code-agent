@@ -1,6 +1,5 @@
 import type { Session } from "./session";
 import type { WorktreeCompletionState } from "./session-worktree-controller";
-import type { EmbeddedEvalResult } from "./embedded-eval";
 import { getPrimarySessionLookupRef, usesNativeBackendWorktree } from "./session-backend-ref";
 import { detectDefaultBranch, getDiffSummary } from "./worktree";
 
@@ -13,7 +12,6 @@ export type PlannedWorktreeAction =
       kind: "no-change";
       repoDir: string;
       worktreePath: string;
-      deliverablePreview?: string;
       nativeBackendWorktree: boolean;
     }
   | {
@@ -43,14 +41,6 @@ export class SessionWorktreeActionService {
         branchName: string,
         baseBranch: string,
       ) => WorktreeCompletionState;
-      classifyNoChangeDeliverable: (context: {
-        harnessName: string;
-        sessionName: string;
-        prompt: string;
-        workdir: string;
-        agentId?: string;
-        outputText: string;
-      }) => Promise<EmbeddedEvalResult>;
     },
   ) {}
 
@@ -99,7 +89,6 @@ export class SessionWorktreeActionService {
         kind: "no-change",
         repoDir,
         worktreePath,
-        deliverablePreview: await this.classifyNoChangeDeliverable(session),
         nativeBackendWorktree: usesNativeBackendWorktree(session),
       };
     }
@@ -134,36 +123,5 @@ export class SessionWorktreeActionService {
       diffSummary,
       sessionRef: sessionRef ?? undefined,
     };
-  }
-
-  private async classifyNoChangeDeliverable(
-    session: Pick<Session, "harnessName" | "name" | "prompt" | "originAgentId" | "getOutput"> & {
-      workdir?: string;
-      originalWorkdir?: string;
-    },
-  ): Promise<string | undefined> {
-    if (typeof session.getOutput !== "function") return undefined;
-    const preview = session.getOutput()
-      .join("\n")
-      .slice(-2_500)
-      .trim();
-    if (!preview) return undefined;
-    const outputText = session.getOutput()
-      .join("\n")
-      .slice(-5_000)
-      .trim();
-    if (!outputText) return undefined;
-    const workspaceDir = session.workdir ?? session.originalWorkdir;
-    if (!workspaceDir) return undefined;
-
-    const result = await this.deps.classifyNoChangeDeliverable({
-      harnessName: session.harnessName,
-      sessionName: session.name,
-      prompt: session.prompt,
-      workdir: workspaceDir,
-      agentId: session.originAgentId,
-      outputText,
-    });
-    return result.classification === "report_worthy_no_change" ? preview : undefined;
   }
 }

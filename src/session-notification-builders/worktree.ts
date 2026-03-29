@@ -1,5 +1,4 @@
 import type { PersistedSessionInfo } from "../types";
-import type { Session } from "../session";
 
 export function buildDelegateWorktreeWakeMessage(args: {
   sessionName: string;
@@ -93,22 +92,4 @@ export function buildWorktreeDecisionSummary(diffSummary: {
   }
 
   return summaryLines;
-}
-
-export function buildNoChangeDeliverableMessage(
-  session: Pick<Session, "name">,
-  preview: string,
-  cleanupSucceeded: boolean,
-  worktreePath: string,
-): string {
-  const cleanupLine = cleanupSucceeded
-    ? "No code changes were made; the worktree was cleaned up."
-    : `No code changes were made; worktree cleanup failed. Worktree still exists at ${worktreePath}`;
-  return [
-    `📋 [${session.name}] Completed with report-only output:`,
-    ``,
-    preview,
-    ``,
-    cleanupLine,
-  ].join("\n");
 }

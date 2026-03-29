@@ -368,7 +368,7 @@ Prefer fully routable channel strings in `fallbackChannel` and `agentChannels`. 
 | Plan approved | `👍` plan approved |
 | Resumed | `▶️` session resumed from persisted context |
 | Turn completed | `⏸️` paused after turn |
-| Completed | `✅` done with cost and duration; `📋 Completed with report-only output` is reserved for substantive no-change/report-only worktree sessions |
+| Completed | `✅` done with cost and duration |
 | Failed | `❌` failed, with recovery guidance |
 | Idle timeout | `💤` idle kill |
 | Stopped | `⛔` stopped by user or shutdown |

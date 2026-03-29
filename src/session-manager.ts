@@ -3,7 +3,6 @@ import { pluginConfig, getDefaultHarnessName } from "./config";
 import { generateSessionName, firstCompleteLines } from "./format";
 import { formatLaunchSummaryFromSession } from "./launch-summary";
 import { pathsReferToSameLocation } from "./path-utils";
-import { SessionSemanticAdapter } from "./session-semantic-adapter";
 import {
   getBackendConversationId,
   getPersistedMutationRefs,
@@ -85,7 +84,6 @@ export class SessionManager {
   private readonly interactions: SessionInteractionService;
   private readonly notifications: SessionNotificationService;
   private readonly worktrees: SessionWorktreeController;
-  private readonly semantic: SessionSemanticAdapter;
   private readonly questions: SessionQuestionService;
   private readonly reminders: SessionReminderService;
   private readonly lifecycle: SessionLifecycleService;
@@ -117,7 +115,6 @@ export class SessionManager {
       (ref, patch) => this.stateSync.applySessionPatch(ref, patch),
     );
     this.worktrees = new SessionWorktreeController();
-    this.semantic = new SessionSemanticAdapter();
     this.restore = new SessionRestoreService((ref) => this.store.getPersistedSession(ref));
     this.worktreeMessages = new SessionWorktreeMessageService();
     this.worktreeStrategy = new SessionWorktreeStrategyService({
@@ -127,7 +124,6 @@ export class SessionManager {
       getWorktreeCompletionState: (repoDir, worktreePath, branchName, baseBranch) => (
         this.getWorktreeCompletionState(repoDir, worktreePath, branchName, baseBranch)
       ),
-      classifyNoChangeDeliverable: (context) => this.semantic.classifyNoChangeDeliverable(context),
       updatePersistedSession: (ref, patch) => this.updatePersistedSession(ref, patch),
       dispatchSessionNotification: (session, request) => this.dispatchSessionNotification(session, request),
       getWorktreeDecisionButtons: (sessionId) => this.getWorktreeDecisionButtons(sessionId),

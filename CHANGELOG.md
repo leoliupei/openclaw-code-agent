@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Returned ordinary successful terminal notifications to deterministic completion messaging only; the plugin no longer generates transcript-based completion summaries for users or wakes.
-- Kept embedded-eval classification only on the substantive no-change/report-only worktree path where it gates report-worthy output handling.
+- Removed the remaining plugin-side no-change/report-only embedded-eval path so worktree completion messaging is fully deterministic.
 - Changed the default `defaultWorktreeStrategy` back to `off`.
 
 ### Fixed

@@ -88,7 +88,7 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
     }
   });
 
-  it("surfaces report-only output for no-change plan sessions instead of the generic cleanup message", async () => {
+  it("uses the generic cleanup message for no-change plan sessions", async () => {
     const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-plan-report-"));
     try {
       git(repoDir, "init", "-b", "main");
@@ -104,9 +104,6 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
 
       const sm = new SessionManager(5);
       stubDispatch(sm);
-      (sm as any).semantic = {
-        classifyNoChangeDeliverable: async () => ({ classification: "report_worthy_no_change" }),
-      };
       (sm as any).store.persisted.set("h-plan-report", {
         harnessSessionId: "h-plan-report",
         backendRef: { kind: "claude-code", conversationId: "h-plan-report" },
@@ -153,16 +150,14 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
       const calls = (sm as any).__dispatchCalls;
       assert.equal(calls.length, 1);
       const [_sessionArg, request] = calls[0];
-      assert.equal(request.label, "worktree-no-change-deliverable");
-      assert.match(request.userMessage, /Completed with report-only output/);
-      assert.match(request.userMessage, /Route report-only sessions/);
-      assert.doesNotMatch(request.userMessage, /Session completed with no changes — worktree cleaned up/);
+      assert.equal(request.label, "worktree-no-changes");
+      assert.equal(request.userMessage, "ℹ️ [plan-report] Session completed with no changes — worktree cleaned up");
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
     }
   });
 
-  it("surfaces report-only output for no-change investigation sessions even outside explicit plan mode", async () => {
+  it("uses the generic cleanup message for no-change investigation sessions outside explicit plan mode", async () => {
     const repoDir = mkdtempSync(join(tmpdir(), "sm-worktree-investigation-report-"));
     try {
       git(repoDir, "init", "-b", "main");
@@ -178,10 +173,6 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
 
       const sm = new SessionManager(5);
       stubDispatch(sm);
-      (sm as any).semantic = {
-        classifyNoChangeDeliverable: async () => ({ classification: "report_worthy_no_change" }),
-      };
-
       const session = {
         id: "s-investigation-report",
         name: "investigation-report",
@@ -210,9 +201,8 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
       const calls = (sm as any).__dispatchCalls;
       assert.equal(calls.length, 1);
       const [_sessionArg, request] = calls[0];
-      assert.equal(request.label, "worktree-no-change-deliverable");
-      assert.match(request.userMessage, /Findings:/);
-      assert.match(request.userMessage, /generic no-change notification/);
+      assert.equal(request.label, "worktree-no-changes");
+      assert.equal(request.userMessage, "ℹ️ [investigation-report] Session completed with no changes — worktree cleaned up");
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
     }

@@ -4,7 +4,6 @@ import {
   buildCompletedPayload,
   buildDelegateWorktreeWakeMessage,
   buildFailedPayload,
-  buildNoChangeDeliverableMessage,
   buildWaitingForInputPayload,
 } from "../src/session-notification-builder";
 
@@ -84,17 +83,6 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessage, /agent_respond\(session='session-2'/);
     assert.match(payload.wakeMessage, /agent_launch\(resume_session_id='session-2', fork_session=true/);
     assert.match(payload.wakeMessage, /Backend conversation ID: backend-thread-1/);
-  });
-
-  it("preserves worktree deliverable cleanup messaging", () => {
-    const message = buildNoChangeDeliverableMessage(
-      { name: "report-session" } as any,
-      "Summary preview",
-      false,
-      "/tmp/worktree",
-    );
-
-    assert.equal(message, "📋 [report-session] Completed with report-only output:\n\nSummary preview\n\nNo code changes were made; worktree cleanup failed. Worktree still exists at /tmp/worktree");
   });
 
   it("preserves delegate worktree wake instructions", () => {

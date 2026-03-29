@@ -3,7 +3,6 @@ import type { NotificationButton } from "./session-interactions";
 import type { SessionNotificationRequest } from "./wake-dispatcher";
 import {
   buildDelegateWorktreeWakeMessage,
-  buildNoChangeDeliverableMessage,
   buildWorktreeDecisionSummary,
 } from "./session-notification-builder";
 
@@ -23,35 +22,16 @@ type DiffSummary = {
 export class SessionWorktreeMessageService {
   buildNoChangeNotification(args: {
     session: Pick<Session, "name">;
-    deliverablePreview?: string;
     nativeBackendWorktree: boolean;
     cleanupSucceeded: boolean;
     worktreePath: string;
   }): SessionNotificationRequest {
     const {
       session,
-      deliverablePreview,
       nativeBackendWorktree,
       cleanupSucceeded,
       worktreePath,
     } = args;
-
-    if (deliverablePreview) {
-      return {
-        label: cleanupSucceeded
-          ? "worktree-no-change-deliverable"
-          : "worktree-no-change-deliverable-cleanup-failed",
-        userMessage: nativeBackendWorktree
-          ? [
-              `📋 [${session.name}] Completed with report-only output:`,
-              ``,
-              deliverablePreview,
-              ``,
-              `No code changes were made; the native backend worktree was released for backend cleanup.`,
-            ].join("\n")
-          : buildNoChangeDeliverableMessage(session as Session, deliverablePreview, cleanupSucceeded, worktreePath),
-      };
-    }
 
     return {
       label: cleanupSucceeded ? "worktree-no-changes" : "worktree-no-changes-cleanup-failed",
