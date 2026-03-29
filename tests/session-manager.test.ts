@@ -1205,6 +1205,9 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "completed");
     assert.equal(request.userMessage, "✅ [normal-session] Completed | $0.00 | 8s");
+    assert.match(request.wakeMessage, /plugin already sent the canonical completion notification/i);
+    assert.match(request.wakeMessage, /do NOT send a duplicate plain-text recap/i);
+    assert.doesNotMatch(request.wakeMessage, /Notify the user with a summary of what was done/);
   });
 
   it("does not derive completion summaries from terminal transcript lines", async () => {

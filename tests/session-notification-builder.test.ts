@@ -72,6 +72,8 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessage, /Effective permission mode: bypassPermissions/);
     assert.match(payload.wakeMessage, /Deterministic approval\/execution state: approved_then_implemented/);
     assert.match(payload.wakeMessage, /Output preview:/);
+    assert.match(payload.wakeMessage, /plugin already sent the canonical completion notification/i);
+    assert.match(payload.wakeMessage, /do NOT send a duplicate plain-text recap/i);
   });
 
   it("uses agent_respond as the primary continuation path in failure wakes", () => {
@@ -137,5 +139,7 @@ describe("session-notification-builder", () => {
     assert.match(message, /Deterministic approval\/execution state: approved_then_implemented/);
     assert.match(message, /Output preview:/);
     assert.match(message, /agent_output\(session='session-4', full=true\)/);
+    assert.match(message, /plugin already sent the canonical completion notification/i);
+    assert.match(message, /do NOT send a duplicate plain-text recap/i);
   });
 });

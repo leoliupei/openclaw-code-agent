@@ -92,6 +92,20 @@ agent_output(session: "fix-auth", full: true)
 ```
 
 Trust the latest output and current phase. Do not report an old planning state after the session has already moved into implementation.
+Treat these wake fields as authoritative session state, not hints:
+
+- `requestedPermissionMode`
+- `effectivePermissionMode` / current permission mode (`currentPermissionMode` in plugin payloads)
+- `approvalExecutionState`
+
+Do not reinterpret approval behavior from transcript fragments when these fields are present.
+
+Completion and approval state handling:
+
+- `approved_then_implemented` means normal approved execution. Do not frame it as rogue, surprising, or a bypass.
+- `implemented_without_required_approval` means the session left a required approval gate. Treat that as the actual approval-bypass case.
+- `awaiting_approval` means the session is still waiting at the gate. Do not describe implementation as started.
+- If the plugin wake says it already sent the canonical approval or completion message, do not send a duplicate plain-text recap unless you are adding real synthesis, a risk callout, or concrete next-step guidance.
 
 ## 4. Respond Rules
 
@@ -170,6 +184,7 @@ Read the diff context from the wake, then decide:
 - `agent_merge` for low-risk, clearly scoped changes that match the task
 - **NEVER call `agent_pr()` autonomously** — always escalate PR decisions to the user
 - escalate to the user if scope or risk is unclear, or if a PR is the safer choice
+- if the wake already says the plugin sent the canonical completion message, only add user-facing follow-up when you need synthesis, risk framing, or concrete next steps beyond that message
 
 ### `manual`
 

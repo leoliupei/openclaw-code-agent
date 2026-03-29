@@ -106,6 +106,12 @@ Terminal completion wakes and no-change worktree completion wakes now include de
 - `currentPermissionMode`: the effective mode at completion time
 - `approvalExecutionState`: one of `awaiting_approval`, `approved_then_implemented`, `implemented_without_required_approval`, or `not_plan_gated`
 
+Treat those fields as authoritative in orchestration logic:
+
+- `approved_then_implemented` is normal approved execution and should not be narrated as an approval bypass
+- `implemented_without_required_approval` is the explicit approval-bypass case
+- successful completion wakes already correspond to a canonical plugin-sent completion notification, so any extra plain-text follow-up should only be sent when you need added synthesis, risk framing, or next-step guidance
+
 ## Worktree Strategies
 
 | Strategy | Where It Is Set | Behavior |

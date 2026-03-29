@@ -160,6 +160,8 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
       const [_sessionArg, request] = calls[0];
       assert.equal(request.label, "worktree-no-changes");
       assert.equal(request.userMessage, "ℹ️ [plan-report] Session completed with no changes — worktree cleaned up");
+      assert.match(request.wakeMessage, /plugin already sent the canonical completion notification/i);
+      assert.match(request.wakeMessage, /do NOT send a duplicate plain-text recap/i);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
     }
@@ -211,6 +213,8 @@ describe("SessionManager.handleWorktreeStrategy()", () => {
       const [_sessionArg, request] = calls[0];
       assert.equal(request.label, "worktree-no-changes");
       assert.equal(request.userMessage, "ℹ️ [investigation-report] Session completed with no changes — worktree cleaned up");
+      assert.match(request.wakeMessage, /plugin already sent the canonical completion notification/i);
+      assert.match(request.wakeMessage, /do NOT send a duplicate plain-text recap/i);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
     }
