@@ -955,6 +955,7 @@ describe("SessionManager turn-end wake", () => {
       status: "running",
       pendingPlanApproval: true,
       planDecisionVersion: 9,
+      planApproval: "delegate",
     });
     (sm as any).sessions.set(s.id, s);
     stubDispatch(sm);
@@ -979,6 +980,28 @@ describe("SessionManager turn-end wake", () => {
 
     const approveToken = (sm as any).interactions.consumeActionToken(request.buttons[0][0].callbackData);
     assert.equal(approveToken?.planDecisionVersion, 9);
+  });
+
+  it("rejects duplicate summary approval prompts for ask-mode plan reviews", () => {
+    const s = fakeSession({
+      id: "s-plan-ask-duplicate",
+      name: "plan-ask-duplicate",
+      status: "running",
+      pendingPlanApproval: true,
+      planDecisionVersion: 3,
+      planApproval: "ask",
+    });
+    (sm as any).sessions.set(s.id, s);
+    stubDispatch(sm);
+
+    const result = sm.requestPlanApprovalFromUser(
+      s.id,
+      "Summary:\\n- Touches `src/session-manager.ts`\\n- Risk: low\\n- Scope matches original task",
+    );
+
+    assert.match(result, /already uses direct user plan approval/i);
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 0);
   });
 
   it("routes bypass-permissions 'should I continue?' prompts through generic waiting only", () => {

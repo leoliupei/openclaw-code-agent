@@ -407,6 +407,9 @@ export class SessionManager {
     if (!session.pendingPlanApproval) {
       return `Error: Session "${ref}" is not awaiting plan approval.`;
     }
+    if (this.resolvePlanApprovalMode(session) !== "delegate") {
+      return `Error: Session "${ref}" already uses direct user plan approval. Do not send a duplicate approval prompt.`;
+    }
 
     const sessionId = getPrimarySessionLookupRef(activeSession ?? persistedSession ?? { id: ref }) ?? ref;
     const buttons = this.interactions.getPlanApprovalButtons(sessionId, session);
