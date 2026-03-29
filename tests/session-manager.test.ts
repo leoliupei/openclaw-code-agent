@@ -1087,6 +1087,55 @@ describe("SessionManager turn-end wake", () => {
     assert.match(request.wakeMessageOnNotifyFailed, /allow read-only workspace inspection/);
   });
 
+  it("emits two separate waiting notifications for back-to-back native pending-input requests in one Codex session", async () => {
+    const s = fakeSession({
+      id: "s-codex-pending-input",
+      name: "codex-pending-input-session",
+      status: "running",
+      harnessName: "codex",
+      pendingPlanApproval: false,
+      pendingInputState: {
+        requestId: "req-1",
+        kind: "selection",
+        promptText: "Choose the first environment",
+        options: ["Staging", "Production"],
+      },
+      submitPendingInputOption: async (optionIndex: number) => optionIndex === 1,
+      getOutput: () => [],
+    });
+    (sm as any).sessions.set(s.id, s);
+
+    (sm as any).triggerWaitingForInputEvent(s);
+    const firstRequest = (sm as any).__dispatchCalls[0][1];
+    assert.equal(firstRequest.label, "waiting");
+    assert.deepEqual(
+      firstRequest.buttons.map((row: Array<{ label: string }>) => row.map((button) => button.label)),
+      [["Staging", "Production"]],
+    );
+
+    const resolved = await sm.resolvePendingInputOption(s.id, 1);
+    assert.equal(resolved, true);
+
+    s.pendingInputState = {
+      requestId: "req-2",
+      kind: "selection",
+      promptText: "Choose the second environment",
+      options: ["Preview", "Prod"],
+    };
+
+    (sm as any).triggerWaitingForInputEvent(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 2);
+    const secondRequest = calls[1][1];
+    assert.equal(secondRequest.label, "waiting");
+    assert.match(secondRequest.userMessage, /Choose the second environment/);
+    assert.deepEqual(
+      secondRequest.buttons.map((row: Array<{ label: string }>) => row.map((button) => button.label)),
+      [["Preview", "Prod"]],
+    );
+  });
+
   it("keeps plan approval routing ahead of worktree delegate suppression", () => {
     const s = fakeSession({
       id: "s-plan-worktree",

@@ -28,6 +28,7 @@ export class SessionQuestionService {
   constructor(
     private readonly pendingQuestions: Map<string, PendingAskUserQuestion>,
     private readonly dispatchSessionNotification: DispatchQuestionNotification,
+    private readonly clearWaitingTimestamp: (sessionId: string) => void,
     private readonly getQuestionButtons: (
       sessionId: string,
       options: Array<{ label: string }>,
@@ -105,6 +106,7 @@ export class SessionQuestionService {
       return;
     }
 
+    this.clearWaitingTimestamp(sessionId);
     pending.resolve({
       behavior: "allow",
       updatedInput: {

@@ -159,6 +159,7 @@ export class SessionManager {
     this.questions = new SessionQuestionService(
       this.pendingAskUserQuestions,
       (session, request) => this.dispatchSessionNotification(session, request),
+      (sessionId) => { this.lastWaitingEventTimestamps.delete(sessionId); },
       (sessionId, options) => this.interactions.getQuestionButtons(sessionId, options),
     );
     this.reminders = new SessionReminderService(
@@ -812,6 +813,7 @@ export class SessionManager {
   async resolvePendingInputOption(sessionId: string, optionIndex: number): Promise<boolean> {
     const session = this.sessions.get(sessionId);
     if (session && await session.submitPendingInputOption(optionIndex)) {
+      this.lastWaitingEventTimestamps.delete(sessionId);
       return true;
     }
     this.questions.resolveAskUserQuestion(sessionId, optionIndex);
