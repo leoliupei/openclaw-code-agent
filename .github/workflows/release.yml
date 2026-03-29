@@ -9,7 +9,9 @@ name: Release
 #      - Repository: openclaw-code-agent
 #      - Workflow filename: release.yml
 #   No secrets or tokens needed — OIDC handles authentication automatically.
-#   Requires: npm CLI 11.5.1+ (bundled with Node 22.14.0+)
+#   Trusted Publishing requires npm CLI 11.5.1+.
+#   GitHub-hosted runners can still surface npm 10.x with Node 22, so this workflow
+#   upgrades npm explicitly before publishing instead of relying on the bundled CLI.
 
 on:
   push:
@@ -71,10 +73,26 @@ jobs:
             echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Validate release version
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          RELEASE_VERSION="${{ steps.version.outputs.version }}"
+          if [ "$PACKAGE_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "package.json version ($PACKAGE_VERSION) does not match release version ($RELEASE_VERSION)" >&2
+            exit 1
+          fi
+
       # ── Publish to npm ────────────────────────────────────────────────────────
 
+      - name: Upgrade npm for Trusted Publishing
+        run: |
+          npm install --global npm@^11.5.1
+          npm --version
+
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        # Trusted Publishing generates provenance automatically for public packages
+        # from public repositories once npm can authenticate via OIDC.
+        run: npm publish --access public
 
       # ── Create GitHub release ─────────────────────────────────────────────────
 
