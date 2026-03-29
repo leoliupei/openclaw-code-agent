@@ -17,10 +17,6 @@ export class SessionSemanticAdapter {
     return this.classifyDeliverable(context);
   }
 
-  async classifyCompletionSummary(context: DeliverableClassificationContext): Promise<EmbeddedEvalResult> {
-    return this.classifyDeliverable(context);
-  }
-
   private async classifyDeliverable(context: DeliverableClassificationContext): Promise<EmbeddedEvalResult> {
     return this.evaluator.classify({
       task: "report_worthy_no_change",

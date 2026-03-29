@@ -1,6 +1,9 @@
 import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import { execFileSync } from "child_process";
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
 // Mock execFileSync for testing
 const originalExecFileSync = execFileSync;
@@ -87,5 +90,32 @@ describe("formatWorktreeOutcomeLine", () => {
     });
     assert.ok(result.includes("PR updated"));
     assert.ok(result.includes("https://github.com/myorg/myrepo/pull/42"));
+  });
+});
+
+describe("removeWorktree", () => {
+  it("refuses implicit cleanup for dirty worktrees but allows explicit destructive cleanup", async () => {
+    const { createWorktree, removeWorktree } = await import("../src/worktree.js");
+    const repoDir = mkdtempSync(join(tmpdir(), "openclaw-worktree-cleanup-"));
+
+    try {
+      execFileSync("git", ["init", "-b", "main"], { cwd: repoDir, stdio: "ignore" });
+      execFileSync("git", ["config", "user.name", "OpenClaw Tests"], { cwd: repoDir, stdio: "ignore" });
+      execFileSync("git", ["config", "user.email", "tests@example.com"], { cwd: repoDir, stdio: "ignore" });
+      writeFileSync(join(repoDir, "README.md"), "base\n");
+      execFileSync("git", ["add", "README.md"], { cwd: repoDir, stdio: "ignore" });
+      execFileSync("git", ["commit", "-m", "init"], { cwd: repoDir, stdio: "ignore" });
+
+      const worktreePath = createWorktree(repoDir, "dirty-cleanup");
+      writeFileSync(join(worktreePath, "notes.txt"), "untracked\n");
+
+      assert.equal(removeWorktree(repoDir, worktreePath), false);
+      assert.equal(existsSync(worktreePath), true);
+
+      assert.equal(removeWorktree(repoDir, worktreePath, { destructive: true }), true);
+      assert.equal(existsSync(worktreePath), false);
+    } finally {
+      rmSync(repoDir, { recursive: true, force: true });
+    }
   });
 });

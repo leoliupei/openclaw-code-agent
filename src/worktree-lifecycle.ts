@@ -2,6 +2,10 @@ import { execFileSync } from "child_process";
 import { existsSync, mkdirSync, rmSync } from "fs";
 import { branchExists, getWorktreeBaseDir, sanitizeBranchName } from "./worktree-repo";
 
+export interface RemoveWorktreeOptions {
+  destructive?: boolean;
+}
+
 export function createWorktree(repoDir: string, sessionName: string): string {
   const sanitized = sanitizeBranchName(sessionName);
   const baseDir = getWorktreeBaseDir(repoDir);
@@ -60,9 +64,40 @@ export function createWorktree(repoDir: string, sessionName: string): string {
   return worktreePath;
 }
 
-export function removeWorktree(repoDir: string, worktreePath: string): boolean {
+function listDirtyWorktreeEntries(worktreePath: string): string[] {
+  if (!existsSync(worktreePath)) return [];
   try {
-    execFileSync("git", ["-C", repoDir, "worktree", "remove", "--force", worktreePath], {
+    const result = execFileSync(
+      "git",
+      ["-C", worktreePath, "status", "--porcelain", "--untracked-files=all"],
+      {
+        timeout: 10_000,
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ).trim();
+    return result ? result.split("\n").map((line) => line.trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function removeWorktree(
+  repoDir: string,
+  worktreePath: string,
+  options: RemoveWorktreeOptions = {},
+): boolean {
+  const destructive = options.destructive === true;
+  const dirtyEntries = listDirtyWorktreeEntries(worktreePath);
+  if (dirtyEntries.length > 0 && !destructive) {
+    console.warn(
+      `[worktree] Refusing implicit cleanup for dirty worktree ${worktreePath}: ${dirtyEntries[0]}`,
+    );
+    return false;
+  }
+
+  try {
+    execFileSync("git", ["-C", repoDir, "worktree", "remove", ...(destructive ? ["--force"] : []), worktreePath], {
       timeout: 15_000,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -70,6 +105,7 @@ export function removeWorktree(repoDir: string, worktreePath: string): boolean {
     return true;
   } catch (err) {
     console.warn(`[worktree] git worktree remove failed for ${worktreePath}: ${err instanceof Error ? err.message : String(err)}`);
+    if (!destructive) return false;
     try {
       rmSync(worktreePath, { recursive: true, force: true });
       console.info(`[worktree] Fallback rmSync succeeded for ${worktreePath}`);

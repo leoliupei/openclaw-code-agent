@@ -51,57 +51,11 @@ export class SessionLifecycleService {
       ) => NotificationButton[][] | undefined;
       extractLastOutputLine: (session: Session) => string | undefined;
       getOutputPreview: (session: Session, maxChars?: number) => string;
-      classifyCompletionSummary: (context: {
-        harnessName?: string;
-        sessionName: string;
-        prompt: string;
-        workdir: string;
-        agentId?: string;
-        outputText: string;
-      }) => Promise<{ classification: string }>;
       originThreadLine: (session: Session) => string;
       debounceWaitingEvent: (sessionId: string) => boolean;
       isAlreadyMerged: (ref: string | undefined) => boolean;
     },
   ) {}
-
-  private async getCompletionSummary(session: Session): Promise<{
-    compactSummary: string;
-    substantiveSummary?: string;
-  }> {
-    const preview = this.deps.getOutputPreview(session).trim();
-    const outputText = session.getOutput().join("\n").trim();
-    const summarySource = outputText || preview;
-    const compactSummary = summarySource
-      ? truncateText(
-          summarySource
-            .split("\n")
-            .map((line) => line.trim())
-            .find(Boolean)
-            ?.replace(/\s+/g, " ")
-            ?? "No textual summary produced.",
-          160,
-        )
-      : "No textual summary produced.";
-    if (!preview || !outputText) {
-      return { compactSummary };
-    }
-    const workdir = session.workdir || session.originalWorkdir;
-    if (!workdir) return { compactSummary };
-
-    const result = await this.deps.classifyCompletionSummary({
-      harnessName: session.harnessName,
-      sessionName: session.name,
-      prompt: session.prompt,
-      workdir,
-      agentId: session.originAgentId,
-      outputText: outputText.slice(-5_000),
-    });
-    return {
-      compactSummary,
-      substantiveSummary: result.classification === "report_worthy_no_change" ? preview : undefined,
-    };
-  }
 
   handleTurnEnd(session: Session, hadQuestion: boolean): void {
     if (session.status !== "running") {
@@ -157,22 +111,24 @@ export class SessionLifecycleService {
         `(cost=$${session.costUsd.toFixed(2)}, duration=${session.duration}ms)`,
       );
 
+      let removedWorktree = false;
       if (repoDir && !nativeBackendWorktree) {
-        removeWorktree(repoDir, session.worktreePath);
+        removedWorktree = removeWorktree(repoDir, session.worktreePath);
       }
 
-      if (repoDir && branchName && !nativeBackendWorktree) {
+      if (repoDir && branchName && !nativeBackendWorktree && removedWorktree) {
         deleteBranch(repoDir, branchName);
       }
 
-      for (const mutationRef of getPersistedMutationRefs(session)) {
-        this.deps.updatePersistedSession(mutationRef, {
-          worktreePath: undefined,
-          worktreeBranch: undefined,
-        });
+      if (removedWorktree) {
+        for (const mutationRef of getPersistedMutationRefs(session)) {
+          this.deps.updatePersistedSession(mutationRef, {
+            worktreePath: undefined,
+            worktreeBranch: undefined,
+          });
+        }
+        worktreeAutoCleaned = true;
       }
-
-      worktreeAutoCleaned = true;
     }
 
     const nonTrivialWorktreeStrategy = session.worktreeStrategy &&
@@ -197,13 +153,13 @@ export class SessionLifecycleService {
       if (worktreeResult.notificationSent) return;
       if (this.deps.hasTurnCompleteWakeMarker(session.id)) return;
       if (!this.deps.shouldEmitTerminalWake(session)) return;
-      this.emitCompleted(session, await this.getCompletionSummary(session));
+      this.emitCompleted(session);
       return;
     }
 
     if (session.status === "completed") {
       if (!this.deps.shouldEmitTerminalWake(session)) return;
-      this.emitCompleted(session, await this.getCompletionSummary(session));
+      this.emitCompleted(session);
       return;
     }
 
@@ -349,20 +305,12 @@ export class SessionLifecycleService {
     });
   }
 
-  emitCompleted(
-    session: Session,
-    completionSummary: {
-      compactSummary: string;
-      substantiveSummary?: string;
-    } = { compactSummary: "No textual summary produced." },
-  ): void {
+  emitCompleted(session: Session): void {
     const preview = this.deps.getOutputPreview(session);
     const payload = buildCompletedPayload({
       session,
       originThreadLine: this.deps.originThreadLine(session),
       preview,
-      compactSummary: completionSummary.compactSummary,
-      substantiveSummary: completionSummary.substantiveSummary,
     });
     this.deps.dispatchSessionNotification(session, {
       label: "completed",

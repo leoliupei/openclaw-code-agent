@@ -1120,7 +1120,7 @@ describe("SessionManager turn-end wake", () => {
     );
   });
 
-  it("surfaces substantive completion summaries only when embedded eval marks the completion as a deliverable", async () => {
+  it("keeps ordinary terminal completions deterministic even when output looks like a report", async () => {
     const reviewSummary = [
       "Findings:",
       "- Race condition still exists in the retry path.",
@@ -1138,7 +1138,6 @@ describe("SessionManager turn-end wake", () => {
         return n === undefined ? lines : lines.slice(-n);
       },
     });
-    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "report_worthy_no_change" });
 
     await (sm as any).onSessionTerminal(s);
 
@@ -1146,12 +1145,12 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "completed");
-    assert.match(request.userMessage, /Completed with summary/);
-    assert.match(request.userMessage, /Race condition still exists/);
+    assert.equal(request.userMessage, "✅ [review-session] Completed | $0.00 | 12s");
     assert.match(request.wakeMessage, /Output preview:/);
+    assert.doesNotMatch(request.wakeMessage, /Completion summary:/);
   });
 
-  it("keeps normal completion notifications concise when embedded eval does not classify the output as a deliverable", async () => {
+  it("keeps normal completion notifications deterministic", async () => {
     const s = fakeSession({
       id: "s-normal-complete",
       name: "normal-session",
@@ -1164,7 +1163,6 @@ describe("SessionManager turn-end wake", () => {
         return n === undefined ? lines : lines.slice(-n);
       },
     });
-    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "none" });
 
     await (sm as any).onSessionTerminal(s);
 
@@ -1172,7 +1170,33 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(calls.length, 1);
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "completed");
-    assert.equal(request.userMessage, "✅ [normal-session] Completed | $0.00 | 8s\n   Summary: Implemented the fix and updated tests.");
+    assert.equal(request.userMessage, "✅ [normal-session] Completed | $0.00 | 8s");
+  });
+
+  it("does not derive completion summaries from terminal transcript lines", async () => {
+    const lines = [
+      "Setting up the repository context.",
+      "Checking the existing tests.",
+      "Implemented the cleanup guard and updated the regression coverage.",
+    ];
+    const s = fakeSession({
+      id: "s-tail-summary",
+      name: "tail-summary-session",
+      status: "completed",
+      prompt: "Implement the cleanup fix.",
+      duration: 9_000,
+      completedAt: Date.now(),
+      getOutput: (n?: number) => n === undefined ? lines : lines.slice(-n),
+    });
+
+    await (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "completed");
+    assert.equal(request.userMessage, "✅ [tail-summary-session] Completed | $0.00 | 9s");
+    assert.doesNotMatch(request.wakeMessage, /Completion summary:/);
   });
 
   it("suppresses turn-complete when the session is already terminal and relies on the final completed notification", async () => {
@@ -1190,8 +1214,6 @@ describe("SessionManager turn-end wake", () => {
       },
       getOutput: () => ["Applied the completion fix and added tests."],
     });
-    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "none" });
-
     (sm as any).onTurnEnd(s, false);
     await (sm as any).onSessionTerminal(s);
 
@@ -1200,7 +1222,7 @@ describe("SessionManager turn-end wake", () => {
     const [_sessionArg, request] = calls[0];
     assert.equal(request.label, "completed");
     assert.doesNotMatch(request.userMessage, /⏸️/);
-    assert.match(request.userMessage, /Summary: Applied the completion fix and added tests\./);
+    assert.equal(request.userMessage, "✅ [terminal-race] Completed | $0.00 | 5s");
   });
 });
 
@@ -1327,8 +1349,6 @@ describe("SessionManager terminal wake behavior", () => {
       },
       getOutput: () => ["done"],
     });
-    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "none" });
-
     await (sm as any).onSessionTerminal(s);
     await (sm as any).onSessionTerminal(s);
 

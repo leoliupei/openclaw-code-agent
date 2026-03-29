@@ -12,7 +12,7 @@ Canonical operator reference for `openclaw-code-agent`: install, configuration, 
 | `harnesses.codex.reasoningEffort` | `medium` |
 | `permissionMode` | `plan` |
 | `planApproval` | `ask` |
-| `defaultWorktreeStrategy` | `ask` |
+| `defaultWorktreeStrategy` | `off` |
 | `maxSessions` | `20` |
 | `maxAutoResponds` | `10` |
 | `idleTimeoutMinutes` | `15` |
@@ -45,7 +45,7 @@ Add this under `plugins.entries["openclaw-code-agent"]` in `~/.openclaw/openclaw
   "config": {
     "fallbackChannel": "telegram|my-bot|123456789",
     "planApproval": "ask",
-    "defaultWorktreeStrategy": "ask",
+    "defaultWorktreeStrategy": "off",
     "harnesses": {
       "claude-code": {
         "defaultModel": "sonnet",
@@ -106,7 +106,7 @@ In `ask`, the plugin sends action buttons for `Approve`, `Revise`, and `Reject` 
 | --- | --- | --- |
 | `off` | Tool param or config | No worktree; session runs in the main checkout |
 | `manual` | Tool param or config | Create worktree and branch, then stop for manual follow-through |
-| `ask` | Tool param or config | Default. Keep the branch local, notify the user, and send inline 4-button decision UI |
+| `ask` | Tool param or config | Keep the branch local, notify the user, and send inline 4-button decision UI |
 | `delegate` | Tool param or config | Keep the branch local and wake the orchestrator with diff context; no user decision buttons are sent automatically |
 | `auto-merge` | Tool param or config | Merge back automatically; spawn a conflict resolver if needed |
 | `auto-pr` | Tool param or config | Create or update the PR automatically; on failure, fall back to an explicit pending worktree decision |
@@ -329,6 +329,20 @@ A session launched in `/home/user/projects/critical-app/api` routes to `telegram
 | Discord with explicit bot account | `discord|my-bot|channel:1234567890123456789` |
 | Discord DM | `discord|user:1234567890123456789` |
 
+For Discord, OpenClaw accepts both canonical route targets and origin-derived session-key variants:
+
+| Source | Supported forms | Normalized route target |
+| --- | --- | --- |
+| Explicit route target | `discord|channel:<id>` | `channel:<id>` |
+| Explicit route target | `discord|user:<id>` | `user:<id>` |
+| Origin session key | `agent:<agent>:discord:channel:<id>` | `channel:<id>` |
+| Origin session key | `agent:<agent>:discord:group:<id>` | `channel:<id>` |
+| Origin session key | `agent:<agent>:discord:dm:<id>` | `user:<id>` |
+| Origin session key | `agent:<agent>:discord:direct:<id>` | `user:<id>` |
+| Bare numeric Discord target | `discord|1234567890123456789` | `channel:<id>` |
+
+Bare numeric Discord targets default to channel routing unless the originating session key explicitly marks the target as `dm` or `direct`.
+
 ### Routing Order
 
 Tool launches resolve the origin channel in this order:
@@ -354,7 +368,7 @@ Prefer fully routable channel strings in `fallbackChannel` and `agentChannels`. 
 | Plan approved | `👍` plan approved |
 | Resumed | `▶️` session resumed from persisted context |
 | Turn completed | `⏸️` paused after turn |
-| Completed | `✅` done with cost and duration, or `📋 Completed with summary` / `📋 Completed with report-only output` for substantive no-change review sessions |
+| Completed | `✅` done with cost and duration; `📋 Completed with report-only output` is reserved for substantive no-change/report-only worktree sessions |
 | Failed | `❌` failed, with recovery guidance |
 | Idle timeout | `💤` idle kill |
 | Stopped | `⛔` stopped by user or shutdown |

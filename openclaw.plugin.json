@@ -136,9 +136,9 @@
       },
       "defaultWorktreeStrategy": {
         "type": "string",
-        "default": "ask",
+        "default": "off",
         "enum": ["off", "manual", "ask", "delegate", "auto-merge", "auto-pr"],
-        "description": "Default worktree strategy for all new sessions when agent_launch omits worktree_strategy. 'ask' (default) = push branch and notify the user with inline buttons (Merge locally / Create PR). 'off' = no worktree. 'manual' = create worktree, no automatic action. 'delegate' = push branch and wake the orchestrator to decide autonomously. 'auto-merge' = auto-merge to base branch on completion. 'auto-pr' = auto-create or update a GitHub PR on completion."
+        "description": "Default worktree strategy for all new sessions when agent_launch omits worktree_strategy. 'off' (default) = no worktree. 'manual' = create worktree, no automatic action. 'ask' = push branch and notify the user with inline buttons (Merge locally / Create PR). 'delegate' = push branch and wake the orchestrator to decide autonomously. 'auto-merge' = auto-merge to base branch on completion. 'auto-pr' = auto-create or update a GitHub PR on completion."
       },
       "worktreeDir": {
         "type": "string",
@@ -202,7 +202,7 @@
     },
     "defaultWorktreeStrategy": {
       "label": "Default worktree strategy",
-      "help": "Applies to all sessions that don't specify worktree_strategy explicitly. 'ask' (default) creates a worktree and sends inline Merge locally / Create PR buttons on completion. 'off' disables worktrees globally. 'delegate' wakes the orchestrator to decide autonomously. 'auto-merge' and 'auto-pr' are fully automated."
+      "help": "Applies to all sessions that don't specify worktree_strategy explicitly. 'off' (default) disables worktrees globally. 'ask' creates a worktree and sends inline Merge locally / Create PR buttons on completion. 'delegate' wakes the orchestrator to decide autonomously. 'auto-merge' and 'auto-pr' are fully automated."
     }
   },
   "skills": [

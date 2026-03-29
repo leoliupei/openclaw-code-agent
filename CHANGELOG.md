@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Returned ordinary successful terminal notifications to deterministic completion messaging only; the plugin no longer generates transcript-based completion summaries for users or wakes.
+- Kept embedded-eval classification only on the substantive no-change/report-only worktree path where it gates report-worthy output handling.
+- Changed the default `defaultWorktreeStrategy` back to `off`.
+
+### Fixed
+
+- Normalized bare numeric Discord route targets to `channel:<id>` consistently across route/session-key handling and documentation.
+- Preserved the dirty-worktree implicit-cleanup guard while removing the unshipped heuristic completion-summary behavior.
+
 ## [3.1.0] - 2026-03-28
 
 ### Breaking Changes
@@ -57,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking Changes
 
 - Changed the default `planApproval` mode to `ask` so plans are forwarded to the user unless the operator explicitly chooses otherwise.
-- Changed the default `defaultWorktreeStrategy` to `ask`, making worktree isolation the default launch behavior.
+- Changed the default `defaultWorktreeStrategy` to `ask`, making worktree isolation the default launch behavior at that stage of the project.
 - Removed the earlier dismiss button from the `ask` worktree-decision UI at that point in history. Later releases replaced this with the broader explicit decision lifecycle.
 
 ### Changed
@@ -85,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Defaulted `planApproval` to `ask` and `defaultWorktreeStrategy` to `ask` for safer out-of-box orchestration.
+- Defaulted `planApproval` to `ask` and `defaultWorktreeStrategy` to `ask` for safer out-of-box orchestration at that stage of the project.
 - Switched base-branch detection to automatic detection instead of assuming `main`.
 - Persisted the original repo `workdir` instead of the temporary worktree path so resume flows keep the correct repo context.
 - Simplified `isGitRepo()` so it no longer depends on a configured remote.

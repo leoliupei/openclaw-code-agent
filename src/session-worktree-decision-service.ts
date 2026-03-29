@@ -51,7 +51,7 @@ export class SessionWorktreeDecisionService {
 
     const nativeBackendWorktree = usesNativeBackendWorktree(session);
     if (!nativeBackendWorktree && worktreePath && existsSync(worktreePath)) {
-      removeWorktree(repoDir, worktreePath);
+      removeWorktree(repoDir, worktreePath, { destructive: true });
     }
 
     if (branchName) {

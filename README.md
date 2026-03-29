@@ -7,7 +7,7 @@
 `openclaw-code-agent` is the OpenClaw plugin for running Claude Code and Codex as managed background coding sessions from chat. Launch work from Telegram, Discord, or any OpenClaw-supported channel, review the plan before execution, keep the job isolated in its own git worktree, and merge or open a PR without leaving the thread.
 
 - **Plan -> Review -> Execute**. `plan` is the default launch mode, with `ask`, `delegate`, and `approve` deciding how much plan approval autonomy the orchestrator gets.
-- **Worktree isolation by default**. New sessions default to `ask`, which keeps coding work isolated in a worktree-backed branch instead of contaminating your main checkout.
+- **Optional worktree isolation**. New sessions default to `off`; opt into `ask`, `delegate`, `auto-merge`, or `auto-pr` when you want worktree-backed branch isolation and post-run branch handling.
 - **State-driven decision UX**. `ask` sends explicit action buttons for **Merge locally**, **Create PR**, **Decide later**, and **Dismiss**. The same action-token model now backs both Telegram and Discord interactive callbacks.
 - **Full session lifecycle**. Suspend, resume, fork, interrupt, and recover sessions across restarts with persisted metadata and output.
 - **Real operator visibility**. `agent_sessions`, `agent_output`, and `agent_stats` show status, buffered output, duration, and USD cost.
@@ -68,7 +68,7 @@ Add a minimal config block under `plugins.entries["openclaw-code-agent"]` in `~/
         "config": {
           "fallbackChannel": "telegram|my-bot|123456789",
           "planApproval": "ask",
-          "defaultWorktreeStrategy": "ask",
+          "defaultWorktreeStrategy": "off",
           "harnesses": {
             "claude-code": {
               "defaultModel": "sonnet",

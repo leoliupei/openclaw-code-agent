@@ -121,8 +121,9 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
           }
 
           // Remove worktree directory — it may have been kept alive pending user decision
+          let worktreeCleanedUp = false;
           if (existsSync(worktreePath)) {
-            removeWorktree(effectiveWorkdir, worktreePath);
+            worktreeCleanedUp = removeWorktree(effectiveWorkdir, worktreePath);
             pruneWorktrees(effectiveWorkdir);
           }
 
@@ -154,7 +155,9 @@ export function makeAgentMergeTool(_ctx?: OpenClawPluginToolContext) {
           );
 
           const mergeTypeMsg = mergeResult.fastForward ? "⚡ Fast-forward" : "🔀 Merge commit";
-          const cleanupMsg = shouldCleanup ? " Branch and worktree cleaned up." : "";
+          const cleanupMsg = shouldCleanup
+            ? (worktreeCleanedUp ? " Branch and worktree cleaned up." : " Branch deleted; worktree cleanup skipped.")
+            : "";
           const pushMsg = shouldPush ? " Pushed." : "";
           let successText = `✅ ${mergeTypeMsg}: ${branchName} → ${baseBranch}.${pushMsg}${cleanupMsg}`;
           if (mergeResult.stashPopConflict) {

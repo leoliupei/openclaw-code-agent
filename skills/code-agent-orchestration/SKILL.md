@@ -23,7 +23,7 @@ Use `openclaw-code-agent` to run Claude Code or Codex sessions as background cod
 - Sessions are multi-turn. All sessions stay open for follow-up messages via `agent_respond`.
 - Always set a short kebab-case `name` when you care about later follow-up.
 - Set `workdir` to the target repo, not to the agent's own workspace.
-- Default behavior is `permission_mode: "plan"` plus `planApproval: "ask"` plus `defaultWorktreeStrategy: "ask"`.
+- Default behavior is `permission_mode: "plan"` plus `planApproval: "ask"` plus `defaultWorktreeStrategy: "off"`.
 - Use `permission_mode: "plan"` whenever the user wants a real planning checkpoint, reviewable plan, or approval buttons before implementation.
 - Use `permission_mode: "bypassPermissions"` only when the user wants autonomous execution. Do not try to recreate plan mode by stuffing "plan only" into the prompt unless you intentionally want a soft fallback rather than the primary UX contract.
 - In `plan` mode, the plan should be emitted directly in normal session output so the user can review it in chat. Do not tell the coding agent to write a plan document or markdown file unless the user explicitly asked for a file.

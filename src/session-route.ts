@@ -18,7 +18,7 @@ function parseDiscordTargetKind(sessionKey?: string): "channel" | "user" | undef
 function normalizeDiscordTarget(target: string, sessionKey?: string): string {
   if (!/^\d+$/.test(target)) return target;
   const kind = parseDiscordTargetKind(sessionKey);
-  return kind ? `${kind}:${target}` : target;
+  return kind ? `${kind}:${target}` : `channel:${target}`;
 }
 
 function routeToChannelString(route?: SessionRoute): string | undefined {

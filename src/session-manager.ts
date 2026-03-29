@@ -187,7 +187,6 @@ export class SessionManager {
       getQuestionButtons: (sessionId, options) => this.interactions.getQuestionButtons(sessionId, options),
       extractLastOutputLine: (session) => this.extractLastOutputLine(session),
       getOutputPreview: (session, maxChars) => this.getOutputPreview(session, maxChars),
-      classifyCompletionSummary: (context) => this.semantic.classifyCompletionSummary(context),
       originThreadLine: (session) => this.originThreadLine(session),
       debounceWaitingEvent: (sessionId) => this.debounceWaitingEvent(sessionId),
       isAlreadyMerged: (ref) => this.isAlreadyMerged(ref),
@@ -788,9 +787,10 @@ export class SessionManager {
       try {
         const repoDir = this.resolveWorktreeRepoDir(session.workdir, session.worktreePath);
         if (!repoDir) continue;
-        if (!usesNativeBackendWorktree(session)) {
-          removeWorktree(repoDir, session.worktreePath);
-        }
+        const removed = usesNativeBackendWorktree(session)
+          ? false
+          : removeWorktree(repoDir, session.worktreePath);
+        if (!usesNativeBackendWorktree(session) && !removed) continue;
         for (const mutationRef of getPersistedMutationRefs(session)) {
           this.updatePersistedSession(mutationRef, {
             worktreePath: undefined,
