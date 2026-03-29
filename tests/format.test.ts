@@ -5,6 +5,7 @@ import {
   generateSessionName,
   truncateText,
   lastCompleteLines,
+  firstCompleteLines,
   formatSessionListing,
   formatStats,
 } from "../src/format";
@@ -102,6 +103,30 @@ describe("lastCompleteLines", () => {
     const result = lastCompleteLines("short\nalongerline", 12);
     assert.ok(
       result === "short\nalongerline" || result === "alongerline",
+      `Got: ${result}`
+    );
+  });
+});
+
+describe("firstCompleteLines", () => {
+  it("returns empty for empty input", () => {
+    assert.equal(firstCompleteLines("", 100), "");
+  });
+
+  it("returns all lines when they fit", () => {
+    assert.equal(firstCompleteLines("a\nb\nc", 100), "a\nb\nc");
+  });
+
+  it("drops latest lines first", () => {
+    const result = firstCompleteLines("first\nsecond\nthird", 12);
+    assert.ok(result.includes("first"), "should keep 'first'");
+    assert.ok(!result.includes("third"), "should drop 'third'");
+  });
+
+  it("never cuts mid-line", () => {
+    const result = firstCompleteLines("short\nalongerline", 12);
+    assert.ok(
+      result === "short\nalongerline" || result === "short",
       `Got: ${result}`
     );
   });

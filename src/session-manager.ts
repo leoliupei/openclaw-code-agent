@@ -1,6 +1,6 @@
 import { Session } from "./session";
 import { pluginConfig, getDefaultHarnessName } from "./config";
-import { generateSessionName, lastCompleteLines } from "./format";
+import { generateSessionName, firstCompleteLines } from "./format";
 import { formatLaunchSummaryFromSession } from "./launch-summary";
 import { pathsReferToSameLocation } from "./path-utils";
 import { SessionSemanticAdapter } from "./session-semantic-adapter";
@@ -543,7 +543,7 @@ export class SessionManager {
 
   private getOutputPreview(session: Session, maxChars: number = 1000): string {
     const raw = session.getOutput(20).join("\n");
-    return raw.length > maxChars ? lastCompleteLines(raw, maxChars) : raw;
+    return raw.length > maxChars ? firstCompleteLines(raw, maxChars) : raw;
   }
 
   private triggerAgentEvent(session: Session): void {

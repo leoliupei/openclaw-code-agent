@@ -195,3 +195,20 @@ export function lastCompleteLines(text: string, maxChars: number): string {
   }
   return result.join("\n");
 }
+
+/**
+ * Take the first N complete lines from text that fit within a character budget.
+ * Never cuts mid-line.
+ */
+export function firstCompleteLines(text: string, maxChars: number): string {
+  const lines = text.split("\n");
+  const result: string[] = [];
+  let len = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const lineLen = lines[i].length + (result.length > 0 ? 1 : 0);
+    if (len + lineLen > maxChars && result.length > 0) break;
+    result.push(lines[i]);
+    len += lineLen;
+  }
+  return result.join("\n");
+}
