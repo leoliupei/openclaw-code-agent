@@ -921,6 +921,33 @@ describe("SessionManager turn-end wake", () => {
     assert.equal(request.buttons[0][2].label, "Reject");
   });
 
+  it("shows the full plan text for non-delegate plan approvals instead of truncating to the default preview budget", () => {
+    const longLine = "A".repeat(600);
+    const fullPlan = [
+      `Plan line 1: ${longLine}`,
+      `Plan line 2: ${longLine}`,
+      `Plan line 3: ${longLine}`,
+    ];
+    const s = fakeSession({
+      id: "s-plan-full",
+      name: "plan-full",
+      status: "running",
+      pendingPlanApproval: true,
+      planApproval: "ask",
+      getOutput: (n?: number) => n === undefined ? fullPlan : fullPlan.slice(-n),
+    });
+
+    (sm as any).triggerWaitingForInputEvent(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "plan-approval");
+    assert.match(request.userMessage, new RegExp(longLine.slice(0, 120)));
+    assert.match(request.userMessage, /Plan line 3:/);
+    assert.doesNotMatch(request.userMessage, /\.\.\.$/);
+  });
+
   it("reuses plan approval buttons when delegated review escalates back to the user", () => {
     const s = fakeSession({
       id: "s-plan-escalate",
@@ -1068,6 +1095,61 @@ describe("SessionManager turn-end wake", () => {
       [["Approve", "Revise", "Reject"]],
     );
   });
+
+  it("surfaces substantive completion summaries only when embedded eval marks the completion as a deliverable", async () => {
+    const reviewSummary = [
+      "Findings:",
+      "- Race condition still exists in the retry path.",
+      "- Missing regression coverage for the failed-restore branch.",
+    ].join("\n");
+    const s = fakeSession({
+      id: "s-review-complete",
+      name: "review-session",
+      status: "completed",
+      prompt: "Review the current implementation and report the main findings.",
+      duration: 12_000,
+      completedAt: Date.now(),
+      getOutput: (n?: number) => {
+        const lines = reviewSummary.split("\n");
+        return n === undefined ? lines : lines.slice(-n);
+      },
+    });
+    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "report_worthy_no_change" });
+
+    await (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "completed");
+    assert.match(request.userMessage, /Completed with summary/);
+    assert.match(request.userMessage, /Race condition still exists/);
+    assert.match(request.wakeMessage, /Output preview:/);
+  });
+
+  it("keeps normal completion notifications concise when embedded eval does not classify the output as a deliverable", async () => {
+    const s = fakeSession({
+      id: "s-normal-complete",
+      name: "normal-session",
+      status: "completed",
+      prompt: "Implement the approved fix.",
+      duration: 8_000,
+      completedAt: Date.now(),
+      getOutput: (n?: number) => {
+        const lines = ["Implemented the fix and updated tests."];
+        return n === undefined ? lines : lines.slice(-n);
+      },
+    });
+    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "none" });
+
+    await (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.equal(request.label, "completed");
+    assert.equal(request.userMessage, "✅ [normal-session] Completed | $0.00 | 8s");
+  });
 });
 
 describe("SessionManager restored button parity", () => {
@@ -1180,7 +1262,7 @@ describe("SessionManager terminal wake behavior", () => {
     stubDispatch(sm);
   });
 
-  it("de-dupes duplicate completion wake for the same terminal marker", () => {
+  it("de-dupes duplicate completion wake for the same terminal marker", async () => {
     const s = fakeSession({
       id: "s-dup-complete",
       name: "dup-complete",
@@ -1193,9 +1275,10 @@ describe("SessionManager terminal wake behavior", () => {
       },
       getOutput: () => ["done"],
     });
+    (sm as any).semantic.classifyCompletionSummary = async () => ({ classification: "none" });
 
-    (sm as any).onSessionTerminal(s);
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1203,7 +1286,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.equal(request.label, "completed");
   });
 
-  it("wakes the originating agent when a session fails", () => {
+  it("wakes the originating agent when a session fails", async () => {
     const s = fakeSession({
       id: "s-failed",
       name: "broken-launch",
@@ -1217,7 +1300,7 @@ describe("SessionManager terminal wake behavior", () => {
       getOutput: () => [],
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1232,7 +1315,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.match(request.userMessage, /❌ \[broken-launch\] Failed/);
   });
 
-  it("de-dupes duplicate failed wake for the same terminal marker", () => {
+  it("de-dupes duplicate failed wake for the same terminal marker", async () => {
     const s = fakeSession({
       id: "s-dup-failed",
       name: "dup-failed",
@@ -1246,8 +1329,8 @@ describe("SessionManager terminal wake behavior", () => {
       getOutput: () => [],
     });
 
-    (sm as any).onSessionTerminal(s);
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1255,7 +1338,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.equal(request.label, "failed");
   });
 
-  it("uses a dedicated idle-timeout notification", () => {
+  it("uses a dedicated idle-timeout notification", async () => {
     const s = fakeSession({
       id: "s-idle-timeout",
       name: "idle-run",
@@ -1265,7 +1348,7 @@ describe("SessionManager terminal wake behavior", () => {
       startedAt: Date.now() - 2_000,
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1274,7 +1357,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.match(request.userMessage, /💤 \[idle-run\] Suspended after idle timeout/);
   });
 
-  it("keeps timed-out pending plans in the plan-decision UX", () => {
+  it("keeps timed-out pending plans in the plan-decision UX", async () => {
     const s = fakeSession({
       id: "s-plan-timeout",
       name: "spellcast-release-readiness-plan",
@@ -1288,7 +1371,7 @@ describe("SessionManager terminal wake behavior", () => {
       startedAt: Date.now() - 2_000,
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1304,7 +1387,7 @@ describe("SessionManager terminal wake behavior", () => {
     );
   });
 
-  it("uses explicit stopped wording for user-terminated sessions", () => {
+  it("uses explicit stopped wording for user-terminated sessions", async () => {
     const s = fakeSession({
       id: "s-user-stop",
       name: "manual-stop",
@@ -1313,7 +1396,7 @@ describe("SessionManager terminal wake behavior", () => {
       startedAt: Date.now() - 2_000,
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1321,7 +1404,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.match(request.userMessage, /⛔ \[manual-stop\] Stopped by user/);
   });
 
-  it("uses explicit stopped wording for startup timeouts", () => {
+  it("uses explicit stopped wording for startup timeouts", async () => {
     const s = fakeSession({
       id: "s-startup-timeout",
       name: "startup-stop",
@@ -1330,7 +1413,7 @@ describe("SessionManager terminal wake behavior", () => {
       startedAt: Date.now() - 2_000,
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);
@@ -1338,7 +1421,7 @@ describe("SessionManager terminal wake behavior", () => {
     assert.match(request.userMessage, /⛔ \[startup-stop\] Stopped by startup timeout/);
   });
 
-  it("uses explicit stopped wording for shutdown stops", () => {
+  it("uses explicit stopped wording for shutdown stops", async () => {
     const s = fakeSession({
       id: "s-shutdown-stop",
       name: "shutdown-stop",
@@ -1347,7 +1430,7 @@ describe("SessionManager terminal wake behavior", () => {
       startedAt: Date.now() - 2_000,
     });
 
-    (sm as any).onSessionTerminal(s);
+    await (sm as any).onSessionTerminal(s);
 
     const calls = (sm as any).__dispatchCalls;
     assert.equal(calls.length, 1);

@@ -457,7 +457,7 @@ export function codexExecutionPolicyForMode(
 ): { approvalPolicy?: string; sandbox?: string } {
   const approvalPolicy = mode === "bypassPermissions"
     ? "never"
-    : (codexApprovalPolicy?.trim() || "on-request");
+    : (codexApprovalPolicy?.trim() || "never");
   const sandbox = approvalPolicy === "never" ? "danger-full-access" : undefined;
   return { approvalPolicy, sandbox };
 }

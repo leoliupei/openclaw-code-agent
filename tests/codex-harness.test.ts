@@ -237,6 +237,26 @@ describe("CodexHarness App Server mapping", () => {
     });
   });
 
+  it("defaults fresh Codex sessions to never approval without falling back to on-request prompts", async () => {
+    const client = new MockJsonRpcClient({ assistantText: "Inspecting." });
+    const harness = new CodexHarness({
+      createClient: () => client as any,
+    });
+
+    await collectMessages(harness.launch({
+      prompt: "investigate",
+      cwd: "/tmp",
+      permissionMode: "plan",
+    }));
+
+    const startRequest = client.requests.find((request) => request.method === "thread/start" || request.method === "thread/new");
+    assert.deepEqual(startRequest?.params, {
+      cwd: "/tmp",
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+    });
+  });
+
   it("captures native Codex worktree refs from thread state", async () => {
     const client = new MockJsonRpcClient({
       threadId: "thread-worktree",

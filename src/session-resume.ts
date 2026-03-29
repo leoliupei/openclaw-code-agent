@@ -41,6 +41,12 @@ export function isCompletedByDefault(session: ResumableSessionLike): boolean {
   return session.status === "completed" || session.killReason === "done";
 }
 
+function canResumeCompletedSession(session: ResumableSessionLike): boolean {
+  return isCompletedByDefault(session)
+    && session.backendRef?.kind === "codex-app-server"
+    && !!getBackendConversationId(session);
+}
+
 export function isNeverStartedRelaunch(session: ResumableSessionLike): boolean {
   return (session.killReason === "shutdown" || session.killReason === "startup-timeout")
     && !getBackendConversationId(session);
@@ -52,7 +58,7 @@ export function assessResumeCandidate(session: ResumableSessionLike): ResumeAsse
   }
 
   const stableSessionId = getStableSessionId(session);
-  if (isCompletedByDefault(session)) {
+  if (isCompletedByDefault(session) && !canResumeCompletedSession(session)) {
     return { kind: "unavailable", reason: "completed", stableSessionId };
   }
 

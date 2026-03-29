@@ -25,12 +25,15 @@ export function buildCompletedPayload(args: {
   session: Pick<Session, "id" | "name" | "status" | "costUsd" | "duration">;
   originThreadLine: OriginThreadLine;
   preview: string;
+  substantiveSummary?: string;
 }): { userMessage: string; wakeMessage: string } {
-  const { session, originThreadLine, preview } = args;
+  const { session, originThreadLine, preview, substantiveSummary } = args;
   const costStr = `$${(session.costUsd ?? 0).toFixed(2)}`;
   const duration = formatDuration(session.duration);
   return {
-    userMessage: `✅ [${session.name}] Completed | ${costStr} | ${duration}`,
+    userMessage: substantiveSummary?.trim()
+      ? `📋 [${session.name}] Completed with summary:\n\n${substantiveSummary}`
+      : `✅ [${session.name}] Completed | ${costStr} | ${duration}`,
     wakeMessage: [
       `Coding agent session completed.`,
       `Name: ${session.name} | ID: ${session.id}`,

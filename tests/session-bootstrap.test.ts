@@ -166,8 +166,69 @@ describe("prepareSessionBootstrap()", () => {
       assert.equal(bootstrap.originalWorkdir, repoDir);
       assert.equal(bootstrap.worktreePath, undefined);
       assert.equal(bootstrap.worktreeBranchName, "agent/codex-native-resume");
+      assert.equal(config.resumeSessionId, "thread-1");
+      assert.equal(config.resumeWorktreeFrom, undefined);
     } finally {
       rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("clears stale resume state when a missing plugin-managed worktree cannot be recreated", () => {
+    const missingRepoDir = join(tmpdir(), `session-bootstrap-missing-${Date.now()}`);
+    const missingWorktreePath = join(missingRepoDir, ".worktrees", "missing", "openclaw");
+    try {
+      const config: SessionConfig = {
+        prompt: "Resume the Claude session",
+        workdir: "/tmp",
+        harness: "claude-code",
+        resumeSessionId: "thread-missing",
+        resumeWorktreeFrom: "session-missing",
+        worktreeStrategy: "off",
+        multiTurn: true,
+        route: {
+          provider: "telegram",
+          target: "12345",
+          sessionKey: "agent:main:telegram:group:12345",
+        },
+      };
+
+      const bootstrap = prepareSessionBootstrap(
+        config,
+        "missing-plugin-worktree",
+        (_ref): PersistedSessionInfo | undefined => ({
+          sessionId: "session-missing",
+          harnessSessionId: "thread-missing",
+          backendRef: {
+            kind: "claude-code",
+            conversationId: "thread-missing",
+          },
+          name: "missing-plugin-worktree",
+          prompt: "Resume the Claude session",
+          workdir: missingRepoDir,
+          status: "killed",
+          lifecycle: "suspended",
+          runtimeState: "stopped",
+          costUsd: 0,
+          route: {
+            provider: "telegram",
+            target: "12345",
+            sessionKey: "agent:main:telegram:group:12345",
+          },
+          worktreePath: missingWorktreePath,
+          worktreeBranch: "agent/missing-plugin-worktree",
+          worktreeStrategy: "ask",
+        }),
+      );
+
+      assert.equal(bootstrap.actualWorkdir, missingRepoDir);
+      assert.equal(bootstrap.originalWorkdir, missingRepoDir);
+      assert.equal(bootstrap.worktreePath, undefined);
+      assert.equal(config.resumeSessionId, undefined);
+      assert.equal(config.resumeWorktreeFrom, undefined);
+      assert.equal(bootstrap.clearedResumeSessionId, true);
+      assert.equal(bootstrap.clearedResumeWorktreeFrom, true);
+    } finally {
+      rmSync(missingRepoDir, { recursive: true, force: true });
     }
   });
 });

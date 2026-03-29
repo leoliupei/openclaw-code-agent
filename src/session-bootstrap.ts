@@ -22,6 +22,8 @@ type Preparation = {
   effectiveSystemPrompt?: string;
   worktreePath?: string;
   worktreeBranchName?: string;
+  clearedResumeSessionId?: boolean;
+  clearedResumeWorktreeFrom?: boolean;
 };
 
 function errorMessage(err: unknown): string {
@@ -69,7 +71,14 @@ function appendWorktreeSystemPrompt(
 function restoreResumeWorktreeContext(
   config: SessionConfig,
   getPersistedSession: (ref: string) => PersistedSessionInfo | undefined,
-): { actualWorkdir?: string; originalWorkdir?: string; worktreePath?: string; worktreeBranchName?: string } {
+): {
+  actualWorkdir?: string;
+  originalWorkdir?: string;
+  worktreePath?: string;
+  worktreeBranchName?: string;
+  clearedResumeSessionId?: boolean;
+  clearedResumeWorktreeFrom?: boolean;
+} {
   const resumeWorktreeId = config.resumeSessionId ?? config.resumeWorktreeFrom;
   if (!resumeWorktreeId) return {};
 
@@ -124,7 +133,10 @@ function restoreResumeWorktreeContext(
 
   if (!originalWorkdir) {
     console.warn(`[SessionManager] Worktree ${persistedSession.worktreePath} no longer exists and cannot be recreated, using original workdir`);
-    return {};
+    return {
+      clearedResumeSessionId: !!config.resumeSessionId,
+      clearedResumeWorktreeFrom: !!config.resumeWorktreeFrom,
+    };
   }
 
   if (usesNativeCodexWorktree) {
@@ -135,6 +147,7 @@ function restoreResumeWorktreeContext(
       actualWorkdir: originalWorkdir,
       originalWorkdir,
       worktreeBranchName: persistedSession.worktreeBranch,
+      clearedResumeWorktreeFrom: !!config.resumeWorktreeFrom,
     };
   }
 
@@ -156,6 +169,8 @@ function restoreResumeWorktreeContext(
     return {
       actualWorkdir: originalWorkdir,
       originalWorkdir,
+      clearedResumeSessionId: !!config.resumeSessionId,
+      clearedResumeWorktreeFrom: !!config.resumeWorktreeFrom,
     };
   }
 }
@@ -170,7 +185,16 @@ export function prepareSessionBootstrap(
     originalWorkdir,
     worktreePath,
     worktreeBranchName,
+    clearedResumeSessionId,
+    clearedResumeWorktreeFrom,
   } = restoreResumeWorktreeContext(config, getPersistedSession);
+
+  if (clearedResumeSessionId) {
+    config.resumeSessionId = undefined;
+  }
+  if (clearedResumeWorktreeFrom) {
+    config.resumeWorktreeFrom = undefined;
+  }
 
   actualWorkdir ??= config.workdir;
   originalWorkdir ??= config.workdir;
@@ -215,5 +239,7 @@ export function prepareSessionBootstrap(
       : config.systemPrompt,
     worktreePath,
     worktreeBranchName,
+    clearedResumeSessionId,
+    clearedResumeWorktreeFrom,
   };
 }

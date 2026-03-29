@@ -187,6 +187,7 @@ export class SessionManager {
       getQuestionButtons: (sessionId, options) => this.interactions.getQuestionButtons(sessionId, options),
       extractLastOutputLine: (session) => this.extractLastOutputLine(session),
       getOutputPreview: (session, maxChars) => this.getOutputPreview(session, maxChars),
+      classifyCompletionSummary: (context) => this.semantic.classifyCompletionSummary(context),
       originThreadLine: (session) => this.originThreadLine(session),
       debounceWaitingEvent: (sessionId) => this.debounceWaitingEvent(sessionId),
       isAlreadyMerged: (ref) => this.isAlreadyMerged(ref),
@@ -542,7 +543,9 @@ export class SessionManager {
   }
 
   private getOutputPreview(session: Session, maxChars: number = 1000): string {
-    const raw = session.getOutput(20).join("\n");
+    const useFullOutput = !Number.isFinite(maxChars);
+    const raw = (useFullOutput ? session.getOutput() : session.getOutput(20)).join("\n");
+    if (useFullOutput) return raw;
     return raw.length > maxChars ? firstCompleteLines(raw, maxChars) : raw;
   }
 

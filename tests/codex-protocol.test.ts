@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buildTurnStartPayloads } from "../src/harness/codex-protocol";
+import {
+  buildTurnStartPayloads,
+  codexExecutionPolicyForMode,
+} from "../src/harness/codex-protocol";
 
 describe("codex protocol turn payloads", () => {
   it("includes execution policy alongside plan collaboration mode", () => {
@@ -54,6 +57,17 @@ describe("codex protocol turn payloads", () => {
           developerInstructions: null,
         },
       },
+    });
+  });
+
+  it("defaults Codex execution policy to never so OpenClaw plan/default sessions do not fall back to on-request", () => {
+    assert.deepEqual(codexExecutionPolicyForMode("plan"), {
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+    });
+    assert.deepEqual(codexExecutionPolicyForMode("default"), {
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
     });
   });
 });

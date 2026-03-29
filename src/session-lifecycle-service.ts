@@ -51,11 +51,38 @@ export class SessionLifecycleService {
       ) => NotificationButton[][] | undefined;
       extractLastOutputLine: (session: Session) => string | undefined;
       getOutputPreview: (session: Session, maxChars?: number) => string;
+      classifyCompletionSummary: (context: {
+        harnessName?: string;
+        sessionName: string;
+        prompt: string;
+        workdir: string;
+        agentId?: string;
+        outputText: string;
+      }) => Promise<{ classification: string }>;
       originThreadLine: (session: Session) => string;
       debounceWaitingEvent: (sessionId: string) => boolean;
       isAlreadyMerged: (ref: string | undefined) => boolean;
     },
   ) {}
+
+  private async getCompletionSummary(session: Session): Promise<string | undefined> {
+    const preview = this.deps.getOutputPreview(session).trim();
+    if (!preview) return undefined;
+    const outputText = session.getOutput().join("\n").trim();
+    if (!outputText) return undefined;
+    const workdir = session.workdir || session.originalWorkdir;
+    if (!workdir) return undefined;
+
+    const result = await this.deps.classifyCompletionSummary({
+      harnessName: session.harnessName,
+      sessionName: session.name,
+      prompt: session.prompt,
+      workdir,
+      agentId: session.originAgentId,
+      outputText: outputText.slice(-5_000),
+    });
+    return result.classification === "report_worthy_no_change" ? preview : undefined;
+  }
 
   handleTurnEnd(session: Session, hadQuestion: boolean): void {
     if (hadQuestion || session.pendingPlanApproval) {
@@ -143,13 +170,13 @@ export class SessionLifecycleService {
       if (worktreeResult.notificationSent) return;
       if (this.deps.hasTurnCompleteWakeMarker(session.id)) return;
       if (!this.deps.shouldEmitTerminalWake(session)) return;
-      this.emitCompleted(session);
+      this.emitCompleted(session, await this.getCompletionSummary(session));
       return;
     }
 
     if (session.status === "completed") {
       if (!this.deps.shouldEmitTerminalWake(session)) return;
-      this.emitCompleted(session);
+      this.emitCompleted(session, await this.getCompletionSummary(session));
       return;
     }
 
@@ -206,13 +233,18 @@ export class SessionLifecycleService {
   emitWaitingForInput(session: Session): void {
     if (!this.deps.debounceWaitingEvent(session.id)) return;
 
-    const preview =
-      (!session.pendingPlanApproval && session.pendingInputState?.promptText)
-        ? session.pendingInputState.promptText
-        : this.deps.getOutputPreview(session);
     const planApprovalMode = session.pendingPlanApproval
       ? this.deps.resolvePlanApprovalMode(session)
       : undefined;
+    const preview =
+      (!session.pendingPlanApproval && session.pendingInputState?.promptText)
+        ? session.pendingInputState.promptText
+        : this.deps.getOutputPreview(
+            session,
+            session.pendingPlanApproval && planApprovalMode !== "delegate"
+              ? Number.POSITIVE_INFINITY
+              : undefined,
+          );
     const waitingButtons =
       session.pendingPlanApproval && planApprovalMode === "ask"
         ? this.deps.getPlanApprovalButtons(session.id, session)
@@ -290,11 +322,13 @@ export class SessionLifecycleService {
     });
   }
 
-  emitCompleted(session: Session): void {
+  emitCompleted(session: Session, substantiveSummary?: string): void {
+    const preview = this.deps.getOutputPreview(session);
     const payload = buildCompletedPayload({
       session,
       originThreadLine: this.deps.originThreadLine(session),
-      preview: this.deps.getOutputPreview(session),
+      preview,
+      substantiveSummary,
     });
     this.deps.dispatchSessionNotification(session, {
       label: "completed",

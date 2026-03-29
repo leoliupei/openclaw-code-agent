@@ -99,18 +99,43 @@ describe("executeRespond", () => {
     assert.equal(capturedConfig.sessionIdOverride, "test-id");
   });
 
-  it("keeps completed sessions closed by default", async () => {
+  it("keeps completed non-Codex sessions closed by default", async () => {
     const session = createStubSession({
       status: "completed",
       lifecycle: "terminal",
       killReason: "done",
       harnessSessionId: "harness-done",
+      backendRef: { kind: "claude-code", conversationId: "harness-done" },
     });
     const sm = createStubSessionManager({ "test-id": session });
     const result = await executeRespond(sm, { session: "test-id", message: "continue" });
     assert.equal(result.isError, true);
     assert.match(result.text, /Resume unavailable/);
     assert.match(result.text, /completed/);
+  });
+
+  it("auto-resumes completed Codex App Server sessions in the common case", async () => {
+    const session = createStubSession({
+      status: "completed",
+      lifecycle: "terminal",
+      killReason: "done",
+      harnessSessionId: "thread-codex-complete",
+      harnessName: "codex",
+      backendRef: { kind: "codex-app-server", conversationId: "thread-codex-complete" },
+      name: "codex-complete",
+    });
+    const sm = createStubSessionManager({ "test-id": session });
+
+    let capturedConfig: any;
+    sm.spawn = (config: any) => {
+      capturedConfig = config;
+      return createStubSession({ name: "codex-complete", id: "test-id" });
+    };
+
+    const result = await executeRespond(sm, { session: "test-id", message: "continue implementation" });
+    assert.ok(result.text.includes("Auto-resumed"));
+    assert.equal(capturedConfig.resumeSessionId, "thread-codex-complete");
+    assert.equal(capturedConfig.sessionIdOverride, "test-id");
   });
 
   it("returns an explicit auto-resume error when spawn fails", async () => {

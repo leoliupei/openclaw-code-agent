@@ -268,7 +268,8 @@ describe("agent_launch tool defaults", () => {
     assert.match((result.content[0] as { text: string }).text, /ID: sess-stable/);
   });
 
-  it("rejects non-fork resume attempts for completed sessions", async () => {
+  it("allows non-fork resume attempts for completed Codex App Server sessions", async () => {
+    let spawnConfig: Record<string, unknown> | undefined;
     setSessionManager({
       resolve: () => undefined,
       getPersistedSession: () => ({
@@ -282,6 +283,14 @@ describe("agent_launch tool defaults", () => {
       }),
       resolveHarnessSessionId: (id: string) => `resolved-${id}`,
       resolveBackendConversationId: (id: string) => `resolved-${id}`,
+      spawn(config: Record<string, unknown>) {
+        spawnConfig = config;
+        return {
+          id: "sess-done",
+          name: "done-session",
+          model: config.model,
+        };
+      },
     } as any);
 
     const tool = makeAgentLaunchTool({ workspaceDir: "/tmp" });
@@ -292,9 +301,10 @@ describe("agent_launch tool defaults", () => {
     });
 
     const text = (result.content[0] as { text: string }).text;
-    assert.match(text, /Resume unavailable/);
-    assert.match(text, /completed/);
-    assert.match(text, /fork_session=true/);
+    assert.ok(spawnConfig, "spawn should be called");
+    assert.equal(spawnConfig?.resumeSessionId, "resolved-old-thread");
+    assert.equal(spawnConfig?.sessionIdOverride, "sess-done");
+    assert.match(text, /ID: sess-done/);
   });
 
   it("forwards per-session plan_approval override to spawn", async () => {
