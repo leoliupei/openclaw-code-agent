@@ -46,6 +46,11 @@ export type SessionWorktreeState =
   | "cleanup_failed";
 export type SessionRuntimeState = "live" | "stopped";
 export type SessionDeliveryState = "idle" | "notifying" | "wake_pending" | "failed";
+export type ApprovalExecutionState =
+  | "awaiting_approval"
+  | "approved_then_implemented"
+  | "implemented_without_required_approval"
+  | "not_plan_gated";
 
 /** Terminal reason used for lifecycle messaging and auto-resume policy. */
 export type KillReason = "user" | "idle-timeout" | "startup-timeout" | "shutdown" | "done" | "unknown";
@@ -200,8 +205,12 @@ export interface SessionConfig {
   /** Explicit delivery route used for notifications and wakes. */
   route?: SessionRoute;
   permissionMode?: PermissionMode;
+  requestedPermissionMode?: PermissionMode;
   planApproval?: PlanApprovalMode;
   codexApprovalPolicy?: CodexApprovalPolicy;
+  approvalExecutionState?: ApprovalExecutionState;
+  planModeApproved?: boolean;
+  approvalState?: SessionApprovalState;
   resumeSessionId?: string;
   /** Original requested session ID for worktree inheritance, independent of harness thread resume.
    * Set even when resumeSessionId is cleared (e.g. Codex harness), so the D1 block can still
@@ -302,7 +311,10 @@ export interface PersistedSessionInfo {
   route?: SessionRoute;
   outputPath?: string;
   harness?: string;
+  requestedPermissionMode?: PermissionMode;
   currentPermissionMode?: PermissionMode;
+  approvalExecutionState?: ApprovalExecutionState;
+  planModeApproved?: boolean;
   pendingPlanApproval?: boolean;
   planApprovalContext?: PlanApprovalContext;
   planDecisionVersion?: number;

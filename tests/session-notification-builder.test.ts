@@ -55,6 +55,9 @@ describe("session-notification-builder", () => {
         status: "completed",
         costUsd: 1.25,
         duration: 61_000,
+        requestedPermissionMode: "plan",
+        currentPermissionMode: "bypassPermissions",
+        approvalExecutionState: "approved_then_implemented",
       } as any,
       originThreadLine: "Origin thread: telegram topic 42",
       preview: "Final output",
@@ -62,6 +65,9 @@ describe("session-notification-builder", () => {
 
     assert.equal(payload.userMessage, "✅ [done-session] Completed | $1.25 | 1m1s");
     assert.match(payload.wakeMessage, /Coding agent session completed\./);
+    assert.match(payload.wakeMessage, /Requested permission mode: plan/);
+    assert.match(payload.wakeMessage, /Effective permission mode: bypassPermissions/);
+    assert.match(payload.wakeMessage, /Deterministic approval\/execution state: approved_then_implemented/);
     assert.match(payload.wakeMessage, /Output preview:/);
   });
 
@@ -74,6 +80,9 @@ describe("session-notification-builder", () => {
         costUsd: 0,
         duration: 10_000,
         harnessSessionId: "backend-thread-1",
+        requestedPermissionMode: "plan",
+        currentPermissionMode: "default",
+        approvalExecutionState: "implemented_without_required_approval",
       } as any,
       originThreadLine: "Origin thread: telegram topic 42",
       errorSummary: "rate limit exceeded",
@@ -84,6 +93,7 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessage, /agent_respond\(session='session-2'/);
     assert.match(payload.wakeMessage, /agent_launch\(resume_session_id='session-2', fork_session=true/);
     assert.match(payload.wakeMessage, /Backend conversation ID: backend-thread-1/);
+    assert.match(payload.wakeMessage, /Deterministic approval\/execution state: implemented_without_required_approval/);
   });
 
   it("preserves delegate worktree wake instructions", () => {
@@ -113,10 +123,15 @@ describe("session-notification-builder", () => {
       cleanupSummary: "worktree cleaned up",
       preview: "Built the project and verified the binary prints hello world.",
       originThreadLine: "Origin thread: telegram topic 42",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      approvalExecutionState: "approved_then_implemented",
     });
 
     assert.match(message, /completed with no repository changes/);
     assert.match(message, /Worktree outcome: worktree cleaned up/);
+    assert.match(message, /Requested permission mode: plan/);
+    assert.match(message, /Deterministic approval\/execution state: approved_then_implemented/);
     assert.match(message, /Output preview:/);
     assert.match(message, /agent_output\(session='session-4', full=true\)/);
   });

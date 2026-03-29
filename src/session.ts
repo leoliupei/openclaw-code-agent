@@ -3,6 +3,7 @@ import { nanoid } from "nanoid";
 import { getDefaultHarness, getHarness } from "./harness";
 import type { AgentHarness, HarnessSession, HarnessMessage } from "./harness";
 import type {
+  ApprovalExecutionState,
   PendingInputState,
   PlanArtifact,
   SessionConfig,
@@ -76,6 +77,7 @@ export class Session extends EventEmitter {
   private readonly systemPrompt?: string;
   private readonly allowedTools?: string[];
   private readonly permissionMode: PermissionMode;
+  readonly requestedPermissionMode: PermissionMode;
   readonly planApproval: PlanApprovalMode;
   readonly codexApprovalPolicy?: CodexApprovalPolicy;
   currentPermissionMode: PermissionMode;
@@ -149,6 +151,7 @@ export class Session extends EventEmitter {
   private readonly harnessEvents: SessionHarnessEventApplier;
   lifecycle: SessionLifecycle = "starting";
   approvalState: SessionApprovalState = "not_required";
+  approvalExecutionState: ApprovalExecutionState = "not_plan_gated";
   runtimeState: SessionRuntimeState = "live";
   deliveryState: SessionDeliveryState = "idle";
 
@@ -173,6 +176,7 @@ export class Session extends EventEmitter {
     this.systemPrompt = config.systemPrompt;
     this.allowedTools = config.allowedTools;
     this.permissionMode = config.permissionMode ?? pluginConfig.permissionMode;
+    this.requestedPermissionMode = config.requestedPermissionMode ?? this.permissionMode;
     this.planApproval = config.planApproval ?? pluginConfig.planApproval;
     this.codexApprovalPolicy = this.harness.name === "codex"
       ? "never"
@@ -245,7 +249,10 @@ export class Session extends EventEmitter {
       ),
       notePlanArtifact: (msg) => this.turnRuntime.notePlanArtifact(msg.artifact, msg.finalized),
       noteSettingsChanged: (args) => this.turnRuntime.noteSettingsChanged(args),
-      setCurrentPermissionMode: (mode) => { this.currentPermissionMode = mode; },
+      setCurrentPermissionMode: (mode) => {
+        this.currentPermissionMode = mode;
+        this.applyControlEvent({ type: "permission.mode_changed", currentPermissionMode: mode });
+      },
       handleRunCompleted: (data) => {
         this.result = {
           subtype: data.success ? "success" : "error",
@@ -279,6 +286,13 @@ export class Session extends EventEmitter {
       },
     });
     this.applyControlEvent({ type: "initialize", hasWorktree: !!(this.worktreeStrategy && this.worktreeStrategy !== "off") });
+    if (config.planModeApproved !== undefined || config.approvalState !== undefined || config.approvalExecutionState !== undefined) {
+      this.applyControlPatch({
+        ...(config.planModeApproved !== undefined ? { planModeApproved: config.planModeApproved } : {}),
+        ...(config.approvalState !== undefined ? { approvalState: config.approvalState } : {}),
+        ...(config.approvalExecutionState !== undefined ? { approvalExecutionState: config.approvalExecutionState } : {}),
+      });
+    }
   }
 
   get status(): SessionStatus { return this._status; }
@@ -463,6 +477,7 @@ export class Session extends EventEmitter {
         try {
           await this.harnessHandle.setPermissionMode(newMode);
           this.currentPermissionMode = newMode;
+          this.applyControlEvent({ type: "permission.mode_changed", currentPermissionMode: newMode });
           this.pendingModeSwitch = undefined;
           appliedApprovalPath = true;
           shouldInjectPrefix = true;
@@ -502,6 +517,7 @@ export class Session extends EventEmitter {
         try {
           await this.harnessHandle.setPermissionMode("plan");
           this.currentPermissionMode = "plan";
+          this.applyControlEvent({ type: "permission.mode_changed", currentPermissionMode: "plan" });
         } catch (err: unknown) {
           console.warn(`[Session ${this.id}] Failed to re-assert plan mode: ${errorMessage(err)}`);
         }
@@ -644,9 +660,12 @@ export class Session extends EventEmitter {
       status: this._status,
       lifecycle: this.lifecycle,
       approvalState: this.approvalState,
+      approvalExecutionState: this.approvalExecutionState,
       worktreeState: this.worktreeState,
       runtimeState: this.runtimeState,
       deliveryState: this.deliveryState,
+      requestedPermissionMode: this.requestedPermissionMode,
+      currentPermissionMode: this.currentPermissionMode,
       pendingPlanApproval: this.pendingPlanApproval,
       planApprovalContext: this.planApprovalContext,
       planDecisionVersion: this.planDecisionVersion,
@@ -667,6 +686,7 @@ export class Session extends EventEmitter {
   private applyControlState(next: SessionControlState): void {
     this.lifecycle = next.lifecycle;
     this.approvalState = next.approvalState;
+    this.approvalExecutionState = next.approvalExecutionState;
     this.worktreeState = next.worktreeState;
     this.runtimeState = next.runtimeState;
     this.deliveryState = next.deliveryState;

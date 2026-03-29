@@ -11,9 +11,12 @@ function baseState(overrides: Partial<SessionControlState> = {}): SessionControl
     status: "starting",
     lifecycle: "starting",
     approvalState: "not_required",
+    approvalExecutionState: "not_plan_gated",
     worktreeState: "none",
     runtimeState: "live",
     deliveryState: "idle",
+    requestedPermissionMode: "default",
+    currentPermissionMode: "default",
     pendingPlanApproval: false,
     planApprovalContext: undefined,
     planDecisionVersion: 0,
@@ -37,6 +40,8 @@ describe("session-state reducer", () => {
     const next = reduceSessionControlState(baseState({
       status: "running",
       lifecycle: "active",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "plan",
     }), {
       type: "plan.requested",
       context: "plan-mode",
@@ -45,8 +50,39 @@ describe("session-state reducer", () => {
     assert.equal(next.pendingPlanApproval, true);
     assert.equal(next.planApprovalContext, "plan-mode");
     assert.equal(next.approvalState, "pending");
+    assert.equal(next.approvalExecutionState, "awaiting_approval");
     assert.equal(next.planDecisionVersion, 1);
     assert.equal(next.lifecycle, "awaiting_plan_decision");
+  });
+
+  it("marks approved plan sessions as approved_then_implemented once the approval path is applied", () => {
+    const next = reduceSessionControlState(baseState({
+      status: "running",
+      lifecycle: "awaiting_plan_decision",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      pendingPlanApproval: true,
+      approvalState: "pending",
+    }), {
+      type: "plan.approved",
+    });
+
+    assert.equal(next.approvalState, "approved");
+    assert.equal(next.approvalExecutionState, "approved_then_implemented");
+  });
+
+  it("marks plan-gated sessions that leave plan mode without approval as implemented_without_required_approval", () => {
+    const next = reduceSessionControlState(baseState({
+      status: "running",
+      lifecycle: "active",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "plan",
+    }), {
+      type: "permission.mode_changed",
+      currentPermissionMode: "default",
+    });
+
+    assert.equal(next.approvalExecutionState, "implemented_without_required_approval");
   });
 
   it("preserves explicit changes_requested patches while plan approval is still pending", () => {

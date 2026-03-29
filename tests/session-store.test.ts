@@ -609,6 +609,29 @@ describe("SessionStore new worktree lifecycle fields", () => {
     assert.equal(persisted?.planApproval, "approve");
   });
 
+  it("persists and reloads deterministic approval/execution context separately from effective mode", () => {
+    writeStore(indexPath, [{
+      harnessSessionId: "h-approval-state",
+      name: "approval-state-session",
+      prompt: "p",
+      workdir: "/tmp",
+      status: "completed",
+      lifecycle: "terminal",
+      costUsd: 0,
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      approvalExecutionState: "approved_then_implemented",
+      planModeApproved: true,
+    }]);
+
+    const store = new SessionStore({ indexPath, env: {} });
+    const persisted = store.getPersistedSession("h-approval-state");
+    assert.equal(persisted?.requestedPermissionMode, "plan");
+    assert.equal(persisted?.currentPermissionMode, "bypassPermissions");
+    assert.equal(persisted?.approvalExecutionState, "approved_then_implemented");
+    assert.equal(persisted?.planModeApproved, true);
+  });
+
   it("persists and reloads worktreeDisposition", () => {
     writeStore(indexPath, [{
       harnessSessionId: "h-disp",

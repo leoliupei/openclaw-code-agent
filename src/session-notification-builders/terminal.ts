@@ -1,9 +1,25 @@
 import { formatDuration } from "../format";
 import type { NotificationButton } from "../session-interactions";
-import type { KillReason } from "../types";
+import type { ApprovalExecutionState, KillReason, PermissionMode } from "../types";
 import type { Session } from "../session";
 
 type OriginThreadLine = string;
+
+type ApprovalExecutionContext = {
+  requestedPermissionMode?: PermissionMode;
+  currentPermissionMode?: PermissionMode;
+  approvalExecutionState?: ApprovalExecutionState;
+};
+
+export function formatApprovalExecutionContextLines(
+  context: ApprovalExecutionContext,
+): string[] {
+  return [
+    `Requested permission mode: ${context.requestedPermissionMode ?? "unknown"}`,
+    `Effective permission mode: ${context.currentPermissionMode ?? "unknown"}`,
+    `Deterministic approval/execution state: ${context.approvalExecutionState ?? "unknown"}`,
+  ];
+}
 
 export function getStoppedStatusLabel(killReason?: KillReason): string {
   switch (killReason) {
@@ -22,7 +38,10 @@ export function getStoppedStatusLabel(killReason?: KillReason): string {
 }
 
 export function buildCompletedPayload(args: {
-  session: Pick<Session, "id" | "name" | "status" | "costUsd" | "duration">;
+  session: Pick<
+    Session,
+    "id" | "name" | "status" | "costUsd" | "duration" | "requestedPermissionMode" | "currentPermissionMode" | "approvalExecutionState"
+  >;
   originThreadLine: OriginThreadLine;
   preview: string;
 }): { userMessage: string; wakeMessage: string } {
@@ -36,6 +55,7 @@ export function buildCompletedPayload(args: {
       `Name: ${session.name} | ID: ${session.id}`,
       `Status: ${session.status}`,
       originThreadLine,
+      ...formatApprovalExecutionContextLines(session),
       ``,
       `Output preview:`,
       preview,
@@ -49,7 +69,10 @@ export function buildCompletedPayload(args: {
 }
 
 export function buildFailedPayload(args: {
-  session: Pick<Session, "id" | "name" | "status" | "costUsd" | "duration"> & { harnessSessionId?: string };
+  session: Pick<
+    Session,
+    "id" | "name" | "status" | "costUsd" | "duration" | "requestedPermissionMode" | "currentPermissionMode" | "approvalExecutionState"
+  > & { harnessSessionId?: string };
   originThreadLine: OriginThreadLine;
   errorSummary: string;
   preview: string;
@@ -74,6 +97,7 @@ export function buildFailedPayload(args: {
       `Name: ${session.name} | ID: ${session.id}`,
       `Status: ${session.status}`,
       originThreadLine,
+      ...formatApprovalExecutionContextLines(session),
       ...(session.harnessSessionId ? [`Backend conversation ID: ${session.harnessSessionId}`] : []),
       ``,
       `Failure summary:`,

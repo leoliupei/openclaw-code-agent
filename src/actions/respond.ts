@@ -35,7 +35,7 @@ type ResumableSession = ResumableSessionLike;
 
 type PlanApprovalTarget = Pick<
   ResumableSession,
-  "approvalState" | "pendingPlanApproval" | "currentPermissionMode" | "name"
+  "approvalState" | "pendingPlanApproval" | "currentPermissionMode" | "requestedPermissionMode" | "name"
 >;
 
 function getSessionRef(session: ResumableSession): string {
@@ -96,6 +96,7 @@ async function spawnFreshRelaunch(
       originSessionKey: session.originSessionKey,
       route: session.route,
       permissionMode: session.currentPermissionMode,
+      requestedPermissionMode: session.requestedPermissionMode ?? session.currentPermissionMode,
       planApproval: session.planApproval,
       codexApprovalPolicy: session.codexApprovalPolicy,
       harness: "harnessName" in session ? session.harnessName : session.harness,
@@ -174,8 +175,16 @@ async function tryAutoResume(
       // the harness launches without plan-mode constraints and the turn-end
       // fallback (currentPermissionMode === "plan") cannot re-fire.
       permissionMode: isPlanApproval ? "bypassPermissions" : session.currentPermissionMode,
+      requestedPermissionMode: session.requestedPermissionMode ?? session.currentPermissionMode,
       planApproval: session.planApproval,
       codexApprovalPolicy: session.codexApprovalPolicy,
+      ...(isPlanApproval
+        ? {
+            approvalState: "approved" as const,
+            approvalExecutionState: "approved_then_implemented" as const,
+            planModeApproved: true,
+          }
+        : {}),
       harness: "harnessName" in session ? session.harnessName : session.harness,
     };
     const resumed = await sm.spawnAndAwaitRunning(resumeConfig, { notifyLaunch: false });

@@ -135,6 +135,11 @@ export class SessionStore {
   /** Persist a running-session stub so crash/restart can recover routing metadata. */
   markRunning(session: Session): void {
     if (!session.harnessSessionId) return;
+    const control = typeof session.controlStateSnapshot === "function"
+      ? session.controlStateSnapshot()
+      : {
+          planModeApproved: false,
+        };
     const route = canonicalizeSessionRoute({
       route: session.route,
       originChannel: session.originChannel,
@@ -165,7 +170,10 @@ export class SessionStore {
       originSessionKey: session.originSessionKey,
       route,
       harness: session.harnessName,
+      requestedPermissionMode: session.requestedPermissionMode,
       currentPermissionMode: session.currentPermissionMode,
+      approvalExecutionState: session.approvalExecutionState,
+      planModeApproved: control.planModeApproved,
       pendingPlanApproval: session.pendingPlanApproval,
       planApprovalContext: session.planApprovalContext,
       planDecisionVersion: session.planDecisionVersion,
@@ -191,6 +199,11 @@ export class SessionStore {
   /** Persist terminal session metadata and write a best-effort tmp output snapshot. */
   persistTerminal(session: Session): void {
     if (!session.harnessSessionId) return;
+    const control = typeof session.controlStateSnapshot === "function"
+      ? session.controlStateSnapshot()
+      : {
+          planModeApproved: false,
+        };
     const route = canonicalizeSessionRoute({
       route: session.route,
       originChannel: session.originChannel,
@@ -246,7 +259,10 @@ export class SessionStore {
       route,
       outputPath,
       harness: session.harnessName,
+      requestedPermissionMode: session.requestedPermissionMode,
       currentPermissionMode: session.currentPermissionMode,
+      approvalExecutionState: session.approvalExecutionState,
+      planModeApproved: control.planModeApproved,
       pendingPlanApproval: session.pendingPlanApproval,
       planApprovalContext: session.planApprovalContext,
       planDecisionVersion: session.planDecisionVersion,

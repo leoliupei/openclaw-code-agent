@@ -12,11 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Returned ordinary successful terminal notifications to deterministic completion messaging only; the plugin no longer generates transcript-based completion summaries for users or wakes.
 - Removed the remaining plugin-side no-change/report-only embedded-eval path so worktree completion messaging is fully deterministic.
 - Changed the default `defaultWorktreeStrategy` back to `off`.
+- Completion wakes now include explicit approval/execution context plus both requested and effective permission modes for plan-gated sessions instead of expecting the orchestrator to infer approval from transcript prose.
 
 ### Fixed
 
 - Normalized bare numeric Discord route targets to `channel:<id>` consistently across route/session-key handling and documentation.
 - Preserved the dirty-worktree implicit-cleanup guard while removing the unshipped heuristic completion-summary behavior.
+- Persisted deterministic approval/execution state so approved plan sessions now surface as `approved_then_implemented`, and plan-gate violations surface as `implemented_without_required_approval`, across terminal and no-change worktree completion paths.
 
 ## [3.1.0] - 2026-03-28
 

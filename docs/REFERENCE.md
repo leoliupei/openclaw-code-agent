@@ -100,6 +100,12 @@ For Codex, approval behavior is fixed to the supported execution path and is not
 
 In `ask`, the plugin sends action buttons for `Approve`, `Revise`, and `Reject` when interactive callbacks are available, and the user-facing message includes the full plan text rather than the normal preview budget. The same flow still works through plain replies. In `delegate`, the orchestrator must read the full plan with `agent_output(..., full=true)` before approving anything.
 
+Terminal completion wakes and no-change worktree completion wakes now include deterministic approval context for plan-gated sessions:
+
+- `requestedPermissionMode`: the original launch-time mode
+- `currentPermissionMode`: the effective mode at completion time
+- `approvalExecutionState`: one of `awaiting_approval`, `approved_then_implemented`, `implemented_without_required_approval`, or `not_plan_gated`
+
 ## Worktree Strategies
 
 | Strategy | Where It Is Set | Behavior |

@@ -3,7 +3,7 @@ import type { SessionManager } from "../session-manager";
 import type { Session } from "../session";
 import { getSessionOutputFilePath } from "../session";
 import { formatDuration, formatSessionListing } from "../format";
-import type { PersistedSessionInfo, SessionStatus } from "../types";
+import type { ApprovalExecutionState, PermissionMode, PersistedSessionInfo, SessionStatus } from "../types";
 
 const DEFAULT_OUTPUT_LINES = 50;
 const MIN_OUTPUT_LINES = 1;
@@ -49,6 +49,9 @@ interface SessionListingItem {
   harness?: string;
   backendRef?: PersistedSessionInfo["backendRef"];
   harnessSessionId?: string;
+  requestedPermissionMode?: PermissionMode;
+  currentPermissionMode?: PermissionMode;
+  approvalExecutionState?: ApprovalExecutionState;
   originChannel?: string;
   originThreadId?: string | number;
   worktreePath?: string;
@@ -258,6 +261,9 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
       harness: p.harness,
       backendRef: p.backendRef,
       harnessSessionId: p.harnessSessionId,
+      requestedPermissionMode: p.requestedPermissionMode,
+      currentPermissionMode: p.currentPermissionMode,
+      approvalExecutionState: p.approvalExecutionState,
       originChannel: p.originChannel,
       originThreadId: p.originThreadId,
       worktreePath: p.worktreePath,
@@ -287,6 +293,9 @@ function mergeActiveAndPersistedSessions(active: Session[], persisted: Persisted
       harness: session.harnessName,
       backendRef: session.backendRef,
       harnessSessionId: session.harnessSessionId,
+      requestedPermissionMode: session.requestedPermissionMode,
+      currentPermissionMode: session.currentPermissionMode,
+      approvalExecutionState: session.approvalExecutionState,
       originChannel: session.originChannel,
       originThreadId: session.originThreadId,
       worktreePath: session.worktreePath,

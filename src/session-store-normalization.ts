@@ -13,13 +13,14 @@ import type {
   SessionWorktreeState,
   SessionRuntimeState,
   SessionDeliveryState,
+  ApprovalExecutionState,
   SessionActionToken,
   SessionActionKind,
   SessionRoute,
   SessionBackendRef,
 } from "./types";
 
-export const STORE_SCHEMA_VERSION = 5;
+export const STORE_SCHEMA_VERSION = 6;
 
 export interface SessionStoreSchema {
   schemaVersion: number;
@@ -124,6 +125,15 @@ function toOptionalRuntimeState(value: unknown): SessionRuntimeState | undefined
 
 function toOptionalDeliveryState(value: unknown): SessionDeliveryState | undefined {
   return value === "idle" || value === "notifying" || value === "wake_pending" || value === "failed"
+    ? value
+    : undefined;
+}
+
+function toOptionalApprovalExecutionState(value: unknown): ApprovalExecutionState | undefined {
+  return value === "awaiting_approval"
+    || value === "approved_then_implemented"
+    || value === "implemented_without_required_approval"
+    || value === "not_plan_gated"
     ? value
     : undefined;
 }
@@ -249,7 +259,10 @@ export function normalizePersistedEntry(raw: unknown): PersistedSessionInfo | un
     route,
     outputPath: toOptionalString(raw.outputPath),
     harness,
+    requestedPermissionMode: toOptionalPermissionMode(raw.requestedPermissionMode),
     currentPermissionMode: toOptionalPermissionMode(raw.currentPermissionMode),
+    approvalExecutionState: toOptionalApprovalExecutionState(raw.approvalExecutionState),
+    planModeApproved: raw.planModeApproved === true,
     pendingPlanApproval: raw.pendingPlanApproval === true,
     planApprovalContext: toOptionalPlanApprovalContext(raw.planApprovalContext),
     planDecisionVersion: toOptionalNumber(raw.planDecisionVersion),

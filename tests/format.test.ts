@@ -180,6 +180,17 @@ describe("formatSessionListing", () => {
     assert.ok(result.includes("Harness: codex"));
   });
 
+  it("shows deterministic approval context when present", () => {
+    const result = formatSessionListing(makeSession({
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      approvalExecutionState: "approved_then_implemented",
+    }));
+    assert.ok(result.includes("Approval: approved_then_implemented"));
+    assert.ok(result.includes("requested=plan"));
+    assert.ok(result.includes("effective=bypassPermissions"));
+  });
+
   it("shows phase for running session in plan mode", () => {
     const result = formatSessionListing(
       makeSession({ status: "running", phase: "active" }),

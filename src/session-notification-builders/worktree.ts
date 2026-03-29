@@ -1,4 +1,5 @@
 import type { PersistedSessionInfo } from "../types";
+import { formatApprovalExecutionContextLines } from "./terminal";
 
 export function buildDelegateWorktreeWakeMessage(args: {
   sessionName: string;
@@ -73,8 +74,20 @@ export function buildNoChangeWakeMessage(args: {
   cleanupSummary: string;
   preview: string;
   originThreadLine?: string;
+  requestedPermissionMode?: PersistedSessionInfo["requestedPermissionMode"];
+  currentPermissionMode?: PersistedSessionInfo["currentPermissionMode"];
+  approvalExecutionState?: PersistedSessionInfo["approvalExecutionState"];
 }): string {
-  const { sessionName, sessionId, cleanupSummary, preview, originThreadLine } = args;
+  const {
+    sessionName,
+    sessionId,
+    cleanupSummary,
+    preview,
+    originThreadLine,
+    requestedPermissionMode,
+    currentPermissionMode,
+    approvalExecutionState,
+  } = args;
   const previewSection = preview.trim()
     ? ["", "Output preview:", preview]
     : [];
@@ -84,6 +97,11 @@ export function buildNoChangeWakeMessage(args: {
     `Name: ${sessionName} | ID: ${sessionId}`,
     `Worktree outcome: ${cleanupSummary}`,
     ...(originThreadLine ? [originThreadLine] : []),
+    ...formatApprovalExecutionContextLines({
+      requestedPermissionMode,
+      currentPermissionMode,
+      approvalExecutionState,
+    }),
     ...previewSection,
     ``,
     `[ACTION REQUIRED] Follow your autonomy rules for session completion:`,

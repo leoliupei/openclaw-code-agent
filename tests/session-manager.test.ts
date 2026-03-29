@@ -1440,6 +1440,28 @@ describe("SessionManager terminal wake behavior", () => {
     assert.doesNotMatch(request.wakeMessage, /collect requirements/);
   });
 
+  it("includes deterministic approval/execution context in terminal completion wakes", async () => {
+    const s = fakeSession({
+      id: "s-approval-context",
+      name: "approval-context",
+      status: "completed",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      approvalExecutionState: "approved_then_implemented",
+      completedAt: 1700000001900,
+      getOutput: () => ["Implementation finished."],
+    });
+
+    await (sm as any).onSessionTerminal(s);
+
+    const calls = (sm as any).__dispatchCalls;
+    assert.equal(calls.length, 1);
+    const [_sessionArg, request] = calls[0];
+    assert.match(request.wakeMessage, /Requested permission mode: plan/);
+    assert.match(request.wakeMessage, /Effective permission mode: bypassPermissions/);
+    assert.match(request.wakeMessage, /Deterministic approval\/execution state: approved_then_implemented/);
+  });
+
   it("de-dupes duplicate failed wake for the same terminal marker", async () => {
     const s = fakeSession({
       id: "s-dup-failed",

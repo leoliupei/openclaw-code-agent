@@ -7,7 +7,7 @@
  *
  * @module format
  */
-import type { SessionBackendRef, SessionMetrics } from "./types";
+import type { ApprovalExecutionState, PermissionMode, SessionBackendRef, SessionMetrics } from "./types";
 import { getBackendConversationId } from "./session-backend-ref";
 
 /** Session shape needed by list formatting utilities. */
@@ -28,6 +28,9 @@ export interface SessionListRenderable {
   harnessSessionId?: string;
   resumeSessionId?: string;
   forkSession?: boolean;
+  requestedPermissionMode?: PermissionMode;
+  currentPermissionMode?: PermissionMode;
+  approvalExecutionState?: ApprovalExecutionState;
   worktreePath?: string;
   worktreeBranch?: string;
   worktreeStrategy?: string;
@@ -116,6 +119,12 @@ export function formatSessionListing(session: SessionListRenderable): string {
   }
   if (session.lifecycle && session.lifecycle !== session.phase) {
     lines.push(`   🔄 Lifecycle: ${session.lifecycle}`);
+  }
+  if (session.requestedPermissionMode || session.currentPermissionMode || session.approvalExecutionState) {
+    lines.push(
+      `   🔐 Approval: ${session.approvalExecutionState ?? "unknown"} ` +
+      `(requested=${session.requestedPermissionMode ?? "unknown"}, effective=${session.currentPermissionMode ?? "unknown"})`,
+    );
   }
   if (session.resumable) {
     lines.push(`   ↩️  Resumable: yes`);

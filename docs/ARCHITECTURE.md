@@ -72,6 +72,12 @@ Key behavior:
 
 `Session` now uses an explicit control-state reducer for lifecycle, approval, runtime, and worktree transitions. Suspended sessions are explicitly resumable; terminal sessions stay terminal.
 
+Plan-gated sessions also persist deterministic approval/execution context:
+
+- the originally requested permission mode
+- the current effective permission mode
+- an explicit approval/execution state such as `awaiting_approval`, `approved_then_implemented`, `implemented_without_required_approval`, or `not_plan_gated`
+
 ### Harness Abstraction
 
 `src/harness/types.ts` defines the `AgentHarness` interface. The built-in harnesses are:
@@ -185,6 +191,7 @@ Stored data includes:
 
 - internal ID and name
 - harness, model, and backend ref
+- requested and effective permission modes plus deterministic approval/execution state
 - workdir and worktree metadata
 - origin routing metadata
 - backend conversation ID for diagnostics and recovery

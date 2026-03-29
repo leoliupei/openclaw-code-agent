@@ -101,7 +101,7 @@ describe("WakeDispatcher", () => {
 
     const fakeOpenClawPath = join(tempDir, "openclaw");
     writeFileSync(fakeOpenClawPath, `#!/usr/bin/env node
-import { appendFileSync } from "node:fs";
+const { appendFileSync } = require("node:fs");
 
 appendFileSync(process.env.OPENCLAW_TEST_LOG, JSON.stringify(process.argv.slice(2)) + "\\n");
 `);

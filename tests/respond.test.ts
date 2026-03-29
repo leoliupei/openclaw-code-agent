@@ -76,6 +76,7 @@ describe("executeRespond", () => {
       originThreadId: 42,
       originAgentId: "agent-main",
       originSessionKey: "agent:main:telegram:group:123:topic:42",
+      requestedPermissionMode: "default",
       currentPermissionMode: "default",
       codexApprovalPolicy: "never",
     });
@@ -95,6 +96,7 @@ describe("executeRespond", () => {
     assert.equal(capturedConfig.originThreadId, 42);
     assert.equal(capturedConfig.originAgentId, "agent-main");
     assert.equal(capturedConfig.permissionMode, "default");
+    assert.equal(capturedConfig.requestedPermissionMode, "default");
     assert.equal(capturedConfig.codexApprovalPolicy, "never");
     assert.equal(capturedConfig.sessionIdOverride, "test-id");
   });
@@ -169,6 +171,7 @@ describe("executeRespond", () => {
       lifecycle: "suspended",
       resumable: true,
       killReason: "idle-timeout",
+      requestedPermissionMode: "plan",
       currentPermissionMode: "plan",
       pendingPlanApproval: true,
       costUsd: 0.05,
@@ -190,6 +193,10 @@ describe("executeRespond", () => {
 
     assert.match(result.text, /Plan approved for session/);
     assert.equal(capturedConfig.permissionMode, "bypassPermissions");
+    assert.equal(capturedConfig.requestedPermissionMode, "plan");
+    assert.equal(capturedConfig.approvalState, "approved");
+    assert.equal(capturedConfig.approvalExecutionState, "approved_then_implemented");
+    assert.equal(capturedConfig.planModeApproved, true);
     assert.match(capturedConfig.prompt, /The user has approved your plan/i);
     assert.equal(capturedConfig.sessionIdOverride, "dead-plan");
   });
