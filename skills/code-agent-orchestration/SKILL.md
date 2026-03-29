@@ -1,6 +1,6 @@
 ---
 name: Code Agent Orchestration
-description: Skill for orchestrating coding agent sessions from OpenClaw. Covers launching, monitoring, multi-turn interaction, lifecycle management, notifications, and worktree decision rules.
+description: Skill for orchestrating coding agent sessions from OpenClaw. Covers launching, monitoring, plan approval, lifecycle management, and worktree decisions.
 metadata:
   openclaw:
     homepage: https://github.com/goldmar/openclaw-code-agent
@@ -17,16 +17,16 @@ metadata:
 
 Use `openclaw-code-agent` to run Claude Code or Codex sessions as background coding jobs from chat.
 
-## 1. Launch Rules
+## Launch
 
 - Do not pass `channel` manually. Routing comes from `agentChannels`, the current chat context, and `fallbackChannel`.
-- Sessions are multi-turn. All sessions stay open for follow-up messages via `agent_respond`.
+- Sessions are multi-turn. Continue existing work with `agent_respond` or `agent_launch(..., resume_session_id=...)`; do not start a fresh session for the same task.
 - Always set a short kebab-case `name` when you care about later follow-up.
-- Set `workdir` to the target repo, not to the agent's own workspace.
-- Default behavior is `permission_mode: "plan"` plus `planApproval: "ask"` plus `defaultWorktreeStrategy: "off"`.
-- Use `permission_mode: "plan"` whenever the user wants a real planning checkpoint, reviewable plan, or approval buttons before implementation.
-- Use `permission_mode: "bypassPermissions"` only when the user wants autonomous execution. Do not try to recreate plan mode by stuffing "plan only" into the prompt unless you intentionally want a soft fallback rather than the primary UX contract.
-- In `plan` mode, the plan should be emitted directly in normal session output so the user can review it in chat. Do not tell the coding agent to write a plan document or markdown file unless the user explicitly asked for a file.
+- Set `workdir` to the target repo.
+- Use `permission_mode: "plan"` when the user wants a real review gate before implementation.
+- Use `permission_mode: "bypassPermissions"` only for autonomous execution.
+- `defaultWorktreeStrategy` now defaults to `off`. Opt into a worktree strategy explicitly when you want branch isolation.
+- In `plan` mode, the plan belongs in normal session output. Do not ask the coding agent to write plan docs or transcript artifacts unless the user explicitly asked for a file.
 
 Example:
 
@@ -38,76 +38,50 @@ agent_launch(
 )
 ```
 
-Resume and fork:
+## Resume, Don't Respawn
 
-```text
-agent_launch(
-  prompt: "Continue where you left off",
-  resume_session_id: "fix-auth"
-)
+When a session already exists for the task, keep using it.
 
-agent_launch(
-  prompt: "Try a different approach",
-  resume_session_id: "fix-auth",
-  fork_session: true,
-  name: "fix-auth-alt"
-)
-```
+- Waiting for plan approval: `agent_respond(session, message, approve=true)` or `agent_request_plan_approval(...)` if delegated approval must escalate to the user
+- Waiting for a question answer: `agent_respond(session, message)`
+- Killed/stopped by restart: `agent_respond(session, message)`
+- Completed but needs follow-up: `agent_launch(resume_session_id=session_id, prompt="...")`
+- Fresh `agent_launch` is only for genuinely independent work
 
-## 2. Anti-Cascade Rule
+Do not launch a new coding session from a wake event for the same task.
 
-When you are woken because a session is waiting or completed, do not launch a new coding session in response. Only use the existing session with:
-
-- `agent_output`
-- `agent_respond`
-- `agent_merge`
-- `agent_pr`
-- `agent_worktree_status`
-
-## 2a. Resume vs. Spawn Rule (CRITICAL)
-
-**Always resume — never spawn fresh — when a session already exists for the task.**
-
-| Situation | Correct action |
-|-----------|---------------|
-| Session waiting for plan approval | `agent_respond(session, message, approve=true)` |
-| Session waiting for a question answer | `agent_respond(session, message)` |
-| Session killed/stopped by restart | `agent_respond(session, message)` — killed sessions auto-resume on next `agent_respond` |
-| Session completed, user wants to extend/revise | `agent_launch(resume_session_id=session_id)` |
-| Worktree has uncommitted work after a crash | `agent_respond` on the stopped session first; only if truly unrecoverable, relaunch with the worktree still in place |
-
-**Never use `agent_launch` to start a fresh session when `agent_respond` would work.** Spawning fresh loses conversation history, may duplicate worktrees, and confuses the user.
-
-Only spawn a genuinely new session for work that is **completely independent** of any existing session.
-
-## 3. Monitoring
+## State and Monitoring
 
 Use:
 
 ```text
 agent_sessions()
-agent_sessions(status: "running")
 agent_output(session: "fix-auth", lines: 100)
 agent_output(session: "fix-auth", full: true)
 ```
 
-Trust the latest output and current phase. Do not report an old planning state after the session has already moved into implementation.
-Treat these wake fields as authoritative session state, not hints:
+Treat these wake fields as authoritative state when present:
 
 - `requestedPermissionMode`
-- `effectivePermissionMode` / current permission mode (`currentPermissionMode` in plugin payloads)
+- `effectivePermissionMode` / `currentPermissionMode`
 - `approvalExecutionState`
 
-Do not reinterpret approval behavior from transcript fragments when these fields are present.
+Use those deterministic fields instead of inferring behavior from transcript fragments.
 
-Completion and approval state handling:
+Approval/execution meanings:
 
-- `approved_then_implemented` means normal approved execution. Do not frame it as rogue, surprising, or a bypass.
-- `implemented_without_required_approval` means the session left a required approval gate. Treat that as the actual approval-bypass case.
-- `awaiting_approval` means the session is still waiting at the gate. Do not describe implementation as started.
-- If the plugin wake says it already sent the canonical approval or completion message, do not send a duplicate plain-text recap unless you are adding real synthesis, a risk callout, or concrete next-step guidance.
+- `approved_then_implemented`: normal approved execution
+- `implemented_without_required_approval`: actual approval bypass
+- `awaiting_approval`: still stopped at the approval gate
+- `not_plan_gated`: no plan gate applied
 
-## 4. Respond Rules
+Completion ownership:
+
+- The plugin sends the canonical completion notification.
+- The orchestrator should only add user-facing follow-up when there is real extra value: synthesis, risk framing, or concrete next steps.
+- Do not generate your own heuristic completion summary from transcript tail lines.
+
+## Respond Rules
 
 Auto-respond immediately only for:
 
@@ -121,120 +95,72 @@ Forward everything else to the user:
 - scope changes
 - credentials or production questions
 - ambiguous requirements
-- anything you are not certain you should answer autonomously
 
-When forwarding, quote the session's exact question. Do not add your own commentary.
+When forwarding, quote the session's exact question. Do not add commentary.
 
-Examples:
+## Plan Approval
 
-```text
-agent_respond(session: "fix-auth", message: "Yes, proceed.")
+Use `permission_mode: "plan"` whenever the user wants a real planning checkpoint.
 
-agent_respond(
-  session: "fix-auth",
-  message: "Stop. Do not touch the database schema.",
-  interrupt: true
-)
-```
+### `planApproval: "ask"`
 
-## 5. Plan Approval
+- Approval belongs to the user.
+- The plugin sends the canonical Approve / Revise / Reject prompt directly to the user.
+- Wait for the user's answer, then forward it with `agent_respond(...)`.
+- Do not send a duplicate approval recap or second approval prompt.
 
-Mode selection:
+### `planApproval: "delegate"`
 
-- `permission_mode: "plan"` is the primary contract for planning sessions. It produces a plan-review stop and is the only mode you should rely on for explicit approval UX.
-- `permission_mode: "bypassPermissions"` is for autonomous execution. Do not try to recreate plan mode by stuffing "plan only", "do not implement yet", or similar text into the prompt.
-- If the user says "investigate first", "show me the plan", "plan only", or "wait for approval before coding", launch in `plan` mode.
-- If the user says "just do it", "run autonomously", or wants uninterrupted execution, use `bypassPermissions`.
-- In `plan` mode, the plan belongs in the agent's normal output stream. Do not ask the coding agent to write `PLAN.md`, investigation notes, or similar artifacts unless the user explicitly requested a file deliverable.
+- Approval belongs to the orchestrator first.
+- This is wake-first: the plugin wakes the orchestrator without user buttons.
+- Before deciding, read the full plan with `agent_output(session, full=true)`; do not rely on the truncated preview.
+- Approve directly with `agent_respond(..., approve=true)` only when the plan is clearly in-bounds and low risk.
+- If escalation is needed, call `agent_request_plan_approval(session='...', summary='...')` exactly once so the plugin sends the single canonical user approval prompt.
+- After that canonical prompt exists, wait for the user's decision; do not send a second plain-text approval summary.
 
-Approve a pending plan with:
+### `planApproval: "approve"`
 
-```text
-agent_respond(
-  session: "fix-auth",
-  message: "Approved. Go ahead.",
-  approve: true,
-  userInitiated: true
-)
-```
+- Auto-approve only after verification per the session policy.
 
-Rules:
+## Worktree Decisions
 
-- `approve: true` approves a pending plan or escalates a `default` mode session into `bypassPermissions`.
-- Do not send approval and revision feedback in the same call.
-- In `planApproval: "ask"`, the user is expected to approve or revise. Wait for that input.
-- Telegram users may get inline `Approve`, `Reject`, and `Revise` buttons for plan review.
+### `off`
 
-## 6. Worktree Decision Rules
+- No worktree. The session runs in the main checkout.
 
 ### `ask`
 
-Do nothing after completion. The plugin already informed the user and attached 4 buttons:
-- **✅ Merge** — merge branch locally
-- **📬 Open PR** — create a GitHub PR
-- **⏭️ Decide later** — snooze reminders for 24h
-- **🗑️ Dismiss (deletes branch)** — permanently delete branch and worktree (irreversible)
-
-Do not call `agent_merge` or `agent_pr` unless the user explicitly asks after that.
+- The plugin owns the user-facing completion/decision message and button UI.
+- Do not call `agent_merge` or `agent_pr` unless the user explicitly asks after that.
 
 ### `delegate`
 
-Read the diff context from the wake, then decide:
-
-- `agent_merge` for low-risk, clearly scoped changes that match the task
-- **NEVER call `agent_pr()` autonomously** — always escalate PR decisions to the user
-- escalate to the user if scope or risk is unclear, or if a PR is the safer choice
-- if the wake already says the plugin sent the canonical completion message, only add user-facing follow-up when you need synthesis, risk framing, or concrete next steps beyond that message
+- The plugin wakes the orchestrator with diff context and no automatic user buttons.
+- Read the diff context and decide whether a local merge is clearly safe.
+- `agent_merge` is acceptable for low-risk, clearly scoped changes that match the task.
+- Never call `agent_pr()` autonomously in delegate flows. Escalate PR decisions to the user.
+- If the wake already says the plugin sent the canonical completion notification, only add user-facing follow-up when you have real extra value.
 
 ### `manual`
 
-Wait for an explicit user request before calling `agent_merge` or `agent_pr`.
+- Wait for an explicit user request before calling `agent_merge` or `agent_pr`.
 
 ### Never
 
-- never use raw `git merge` or raw PR commands in place of the plugin tools
-- never clear a pending worktree decision by inventing your own workaround; use `agent_worktree_cleanup(session: "...", dismiss_session: true)` to permanently dismiss
-- never call `agent_pr()` autonomously in `delegate` flows — always escalate to the user for PR decisions
+- Never use raw `git merge` or raw PR commands in place of plugin tools.
+- Never invent your own workaround for a pending worktree decision; use `agent_worktree_cleanup(session: "...", dismiss_session: true)` to dismiss permanently.
+- Never merge or PR an `ask` worktree behind the user's back.
 
-## 6b. Planning Document Policy
+## File Artifact Policy
 
-- Do NOT ask the coding agent to write planning documents, investigation notes, or analysis artifacts as files unless the user explicitly requested a file
-- Do NOT commit planning documents, investigation notes, or analysis artifacts to the branch
-- Only commit actual code, configuration, tests, and documentation changes that were explicitly requested as part of the task
+- Do not ask the coding agent to write planning documents, investigation notes, or analysis artifacts as files unless the user explicitly requested a file.
+- Do not commit planning documents, investigation notes, or transcript-summary artifacts to the branch.
+- Commit only actual code, configuration, tests, and explicitly requested documentation.
 
-## 6c. Resume vs New Session
+## Anti-Patterns
 
-- When resuming a session with an existing worktree, use `resume_session_id` with `agent_launch`
-- Do not create a new session if the old worktree branch still has unmerged changes — resume instead
-- If the user wants a fresh start, use `fork_session: true` to branch from the previous session state
-
-## 7. Lifecycle Notes
-
-- `agent_respond` auto-resumes paused, idle-killed, and most other terminal sessions.
-- The only common non-resumable path is `startup-timeout`.
-- Terminal runtime sessions are evicted after `sessionGcAgeMinutes` (default 1440 minutes), but persisted metadata remains resumable.
-- `agent_stats` is the quick operator view for aggregate cost and duration.
-
-## 8. Chat Commands
-
-Common command equivalents:
-
-```text
-/agent --name fix-auth Fix the auth middleware bug
-/agent_sessions
-/agent_output fix-auth
-/agent_respond fix-auth Add tests too
-/agent_kill fix-auth
-/agent_resume --fork fix-auth Try a different approach
-/agent_stats
-```
-
-## 9. Anti-Patterns
-
-- Do not pass a `multi_turn` or `multi_turn_disabled` parameter; all sessions are multi-turn and the parameter no longer exists.
-- Do not pass `channel` manually unless you are debugging routing at a very low level.
+- Do not pass `multi_turn` or `multi_turn_disabled`; all sessions are multi-turn.
+- Do not pass `channel` manually unless you are debugging routing.
 - Do not auto-answer design or scope questions.
-- Do not launch new sessions from wake events.
-- Do not merge or PR an `ask` worktree behind the user's back.
-
-See `README.md` for the product overview and `docs/REFERENCE.md` for the canonical operator reference.
+- Do not infer approval/completion ownership from old transcript snippets when deterministic fields are present.
+- Do not post duplicate completion or approval recaps when the plugin already sent the canonical message.
