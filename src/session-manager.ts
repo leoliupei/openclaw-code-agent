@@ -177,7 +177,16 @@ export class SessionManager {
     session.start();
 
     if (options.notifyLaunch !== false) {
-      const launchText = `🚀 [${session.name}] Launched | ${session.workdir} | ${session.model ?? "default"}`;
+      const launchLines = [
+        `🚀 [${session.name}] Launched | ${session.workdir} | ${session.model ?? "default"}`,
+        `Prompt: ${session.prompt}`,
+      ];
+      if (session.reasoningEffort) launchLines.push(`Reasoning effort: ${session.reasoningEffort}`);
+      if (session.currentPermissionMode) launchLines.push(`Permission mode: ${session.currentPermissionMode}`);
+      if (session.codexApprovalPolicy) launchLines.push(`Codex approval policy: ${session.codexApprovalPolicy}`);
+      if (session.resumeSessionId) launchLines.push(`Resume: ${session.resumeSessionId}${session.forkSession ? " (forked)" : ""}`);
+      launchLines.push(`Multi-turn: ${session.multiTurn}`);
+      const launchText = launchLines.join("\n");
       this.notifySession(session, launchText, "launch");
     }
 
