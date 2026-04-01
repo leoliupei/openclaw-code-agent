@@ -3,7 +3,7 @@
  * plugin's structured backend/run event model.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import * as claudeAgentSdk from "@anthropic-ai/claude-agent-sdk";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
@@ -35,6 +35,18 @@ type ClaudeQueryHandle = AsyncIterable<unknown> & {
   streamInput?: (input: AsyncIterable<SDKUserMessage>) => Promise<void>;
   interrupt?: () => Promise<void>;
 };
+
+type ClaudeWarmQueryHandle = {
+  query: (prompt: string | AsyncIterable<SDKUserMessage>) => ClaudeQueryHandle;
+  close?: () => void | Promise<void>;
+};
+
+type ClaudeStartup = (args?: { options?: Record<string, unknown> }) => Promise<ClaudeWarmQueryHandle>;
+
+interface ClaudeCodeHarnessDeps {
+  query?: typeof claudeAgentSdk.query;
+  startup?: ClaudeStartup;
+}
 
 interface ClaudeAssistantTextBlock {
   type: "text";
@@ -89,6 +101,8 @@ function buildPendingInputState(
 }
 
 export class ClaudeCodeHarness implements AgentHarness {
+  constructor(private readonly deps: ClaudeCodeHarnessDeps = {}) {}
+
   readonly name = "claude-code";
   readonly backendKind = "claude-code" as const;
   readonly supportedPermissionModes = [
@@ -158,13 +172,27 @@ export class ClaudeCodeHarness implements AgentHarness {
       sdkOptions.forkSession = options.forkSession ?? false;
     }
 
-    const q = query({
-      prompt: options.prompt as string | AsyncIterable<SDKUserMessage>,
-      options: sdkOptions,
-    }) as ClaudeQueryHandle;
+    const prompt = options.prompt as string | AsyncIterable<SDKUserMessage>;
+    const queryFn = this.deps.query ?? claudeAgentSdk.query;
+    const startupFn = this.deps.startup
+      ?? (claudeAgentSdk as typeof claudeAgentSdk & { startup?: ClaudeStartup }).startup;
+    const qPromise = (async (): Promise<ClaudeQueryHandle> => {
+      if (typeof startupFn !== "function") {
+        return queryFn({ prompt, options: sdkOptions }) as ClaudeQueryHandle;
+      }
+
+      const warmQuery = await startupFn({ options: sdkOptions });
+      try {
+        return warmQuery.query(prompt) as ClaudeQueryHandle;
+      } catch (error) {
+        await warmQuery.close?.();
+        throw error;
+      }
+    })();
 
     void (async () => {
       try {
+        const q = await qPromise;
         for await (const raw of q) {
           const msg = raw as ClaudeMessageEnvelope;
           if (msg.type === "system" && msg.subtype === "init") {
@@ -251,18 +279,21 @@ export class ClaudeCodeHarness implements AgentHarness {
       messages: queue.messages(),
 
       async setPermissionMode(mode: string): Promise<void> {
+        const q = await qPromise;
         if (typeof q.setPermissionMode === "function") {
           await q.setPermissionMode(mode);
         }
       },
 
       async streamInput(input: AsyncIterable<unknown>): Promise<void> {
+        const q = await qPromise;
         if (typeof q.streamInput === "function") {
           await q.streamInput(input as AsyncIterable<SDKUserMessage>);
         }
       },
 
       async interrupt(): Promise<void> {
+        const q = await qPromise;
         if (typeof q.interrupt === "function") {
           await q.interrupt();
         }
