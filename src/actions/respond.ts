@@ -130,9 +130,11 @@ function approvalBlockedReason(session: PlanApprovalTarget): string | undefined 
   return undefined;
 }
 
-function hasLatestActionablePlan(session: Pick<PlanApprovalTarget, "pendingPlanApproval" | "planDecisionVersion" | "actionablePlanDecisionVersion">): boolean {
+function hasLatestActionablePlan(session: Pick<PlanApprovalTarget, "approvalState" | "pendingPlanApproval" | "planDecisionVersion" | "actionablePlanDecisionVersion">): boolean {
   if (!session.pendingPlanApproval) return false;
-  const version = session.actionablePlanDecisionVersion ?? session.planDecisionVersion ?? 0;
+  const version = session.approvalState === "changes_requested"
+    ? session.actionablePlanDecisionVersion
+    : (session.actionablePlanDecisionVersion ?? session.planDecisionVersion);
   return version > 0;
 }
 

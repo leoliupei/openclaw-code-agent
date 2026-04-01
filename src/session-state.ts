@@ -163,12 +163,17 @@ export function reduceSessionControlState(
           state.pendingPlanApproval
           && state.approvalState === "pending"
           && state.planApprovalContext === event.context;
+        const isInFlightRevision =
+          state.pendingPlanApproval
+          && state.approvalState === "changes_requested"
+          && state.planApprovalContext === event.context
+          && state.planDecisionVersion > 0;
         const isRevisedPlanSubmission =
           !state.pendingPlanApproval
           && state.approvalState === "changes_requested"
           && state.planApprovalContext === event.context
           && state.planDecisionVersion > 0;
-        const nextVersion = isSamePendingPlan || isRevisedPlanSubmission
+        const nextVersion = isSamePendingPlan || isInFlightRevision || isRevisedPlanSubmission
           ? state.planDecisionVersion
           : state.planDecisionVersion + 1;
         return finalizeState({
@@ -211,14 +216,14 @@ export function reduceSessionControlState(
     case "plan.changes_requested":
       return finalizeState({
         ...state,
-        pendingPlanApproval: false,
+        pendingPlanApproval: true,
         approvalState: "changes_requested",
         planDecisionVersion: state.planDecisionVersion + 1,
         actionablePlanDecisionVersion: undefined,
         canonicalPlanPromptVersion: undefined,
         approvalPromptVersion: undefined,
         approvalPromptStatus: "not_sent",
-        lifecycle: "awaiting_user_input",
+        lifecycle: "awaiting_plan_decision",
       });
 
     case "terminal.entered":
