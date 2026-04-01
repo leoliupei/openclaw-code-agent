@@ -22,6 +22,7 @@ import type {
   PlanApprovalMode,
   SessionActionKind,
   SessionActionToken,
+  SessionRoute,
 } from "./types";
 import { SessionStore } from "./session-store";
 import { SessionMetricsRecorder } from "./session-metrics";
@@ -568,8 +569,62 @@ export class SessionManager {
     });
   }
 
+  sendMonitorReport(args: {
+    reportId: string;
+    route: SessionRoute;
+    text: string;
+    planName: string;
+    planPrompt: string;
+    planWorkdir: string;
+  }): void {
+    const buttons = this.interactions.getMonitorReportButtons({
+      reportId: args.reportId,
+      route: args.route,
+      planName: args.planName,
+      planPrompt: args.planPrompt,
+      planWorkdir: args.planWorkdir,
+    });
+    this.dispatchSessionNotification(this.buildRoutingProxy({
+      id: args.reportId,
+      route: args.route,
+    }), {
+      label: "monitor-report",
+      userMessage: args.text,
+      notifyUser: "always",
+      buttons,
+    });
+  }
+
+  launchMonitorPlan(args: {
+    route?: SessionRoute;
+    prompt: string;
+    workdir: string;
+    name?: string;
+  }): Session {
+    const route = args.route ?? { provider: "system", target: "system" };
+    return this.spawn({
+      prompt: args.prompt,
+      workdir: args.workdir,
+      name: args.name,
+      harness: getDefaultHarnessName(),
+      permissionMode: "plan",
+      planApproval: "ask",
+      worktreeStrategy: "off",
+      multiTurn: true,
+      route,
+      originChannel: this.originChannelFromRoute(route),
+      originThreadId: route.threadId,
+      originSessionKey: route.sessionKey,
+    });
+  }
+
   private dispatchSessionNotification(session: Session, request: SessionNotificationRequest): void {
     this.notifications.dispatch(session, request);
+  }
+
+  private originChannelFromRoute(route: SessionRoute): string {
+    if (route.accountId) return `${route.provider}|${route.accountId}|${route.target}`;
+    return `${route.provider}|${route.target}`;
   }
 
 

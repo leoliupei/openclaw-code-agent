@@ -169,6 +169,8 @@ function toOptionalActionKind(value: unknown): SessionActionKind | undefined {
   return value === "plan-approve"
     || value === "plan-request-changes"
     || value === "plan-reject"
+    || value === "monitor-start-plan"
+    || value === "monitor-dismiss"
     || value === "worktree-merge"
     || value === "worktree-create-pr"
     || value === "worktree-update-pr"
@@ -435,6 +437,10 @@ export function normalizeActionToken(raw: unknown): SessionActionToken | undefin
     optionIndex: toOptionalNumber(raw.optionIndex),
     label: toOptionalString(raw.label),
     targetUrl: toOptionalString(raw.targetUrl),
+    route: normalizeRoute(raw.route),
+    launchName: toOptionalString(raw.launchName),
+    launchPrompt: toOptionalString(raw.launchPrompt),
+    launchWorkdir: toOptionalString(raw.launchWorkdir),
   };
 }
 

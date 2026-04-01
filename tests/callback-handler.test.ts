@@ -292,4 +292,49 @@ describe("createCallbackHandler()", () => {
     assert.equal(state.componentsCleared, 1);
     assert.equal(state.replies[0], "PR: https://github.com/example/repo/pull/999");
   });
+
+  it("launches a plan-only session from monitor report actions", async () => {
+    const launches: Array<Record<string, unknown>> = [];
+    setSessionManager({
+      getActionToken: () => ({
+        sessionId: "openclaw-release-v2026.3.31",
+        kind: "monitor-start-plan",
+        route: {
+          provider: "telegram",
+          target: "-1003863755361",
+          threadId: "13832",
+          sessionKey: "agent:main:telegram:group:-1003863755361:topic:13832",
+        },
+        launchName: "oc-release-v2026.3.31",
+        launchPrompt: "Plan the required follow-up.",
+        launchWorkdir: "/home/openclaw/workspace/openclaw-code-agent",
+      }),
+      consumeActionToken: () => ({
+        sessionId: "openclaw-release-v2026.3.31",
+        kind: "monitor-start-plan",
+        route: {
+          provider: "telegram",
+          target: "-1003863755361",
+          threadId: "13832",
+          sessionKey: "agent:main:telegram:group:-1003863755361:topic:13832",
+        },
+        launchName: "oc-release-v2026.3.31",
+        launchPrompt: "Plan the required follow-up.",
+        launchWorkdir: "/home/openclaw/workspace/openclaw-code-agent",
+      }),
+      launchMonitorPlan: (args: Record<string, unknown>) => {
+        launches.push(args);
+        return { id: "sess-plan", name: "oc-release-v2026.3.31" };
+      },
+    } as any);
+
+    const handler = createCallbackHandler();
+    const state = createCtx("token-monitor-start");
+    const result = await handler.handler(state.ctx as any);
+
+    assert.deepEqual(result, { handled: true });
+    assert.equal(state.buttonsCleared, 1);
+    assert.equal(launches[0]?.workdir, "/home/openclaw/workspace/openclaw-code-agent");
+    assert.match(state.replies[0], /Planning session started: oc-release-v2026\.3\.31 \[sess-plan\]/);
+  });
 });

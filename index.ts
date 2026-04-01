@@ -8,6 +8,7 @@ import { makeAgentKillTool } from "./src/tools/agent-kill";
 import { makeAgentOutputTool } from "./src/tools/agent-output";
 import { makeAgentRespondTool } from "./src/tools/agent-respond";
 import { makeAgentRequestPlanApprovalTool } from "./src/tools/agent-request-plan-approval";
+import { makeAgentSendMonitorReportTool } from "./src/tools/agent-send-monitor-report";
 import { makeAgentStatsTool } from "./src/tools/agent-stats";
 import { makeAgentMergeTool } from "./src/tools/agent-merge";
 import { makeAgentPrTool } from "./src/tools/agent-pr";
@@ -119,6 +120,7 @@ export function register(api: OpenClawPluginApi): void {
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentOutputTool(ctx), { optional: false });
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentRespondTool(ctx), { optional: false });
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentRequestPlanApprovalTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentSendMonitorReportTool(ctx), { optional: false });
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentStatsTool(ctx), { optional: false });
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentMergeTool(ctx), { optional: false });
   registerTool((ctx: OpenClawPluginToolContext) => makeAgentPrTool(ctx), { optional: false });

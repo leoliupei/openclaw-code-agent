@@ -288,6 +288,28 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
           break;
         }
 
+        case "monitor-start-plan": {
+          await clearInteractiveState(ctx);
+          if (!consumedToken.launchPrompt || !consumedToken.launchWorkdir) {
+            await replyText(ctx, "⚠️ This release action is missing the plan launch context.");
+            break;
+          }
+          const session = sessionManager.launchMonitorPlan({
+            route: consumedToken.route,
+            prompt: consumedToken.launchPrompt,
+            workdir: consumedToken.launchWorkdir,
+            name: consumedToken.launchName,
+          });
+          await replyText(ctx, `▶️ Planning session started: ${session.name} [${session.id}]`);
+          break;
+        }
+
+        case "monitor-dismiss": {
+          await clearInteractiveState(ctx);
+          await replyText(ctx, `✅ Dismissed.`);
+          break;
+        }
+
         case "session-restart":
         case "session-resume": {
           await clearInteractiveState(ctx);

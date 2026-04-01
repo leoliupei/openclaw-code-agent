@@ -1,5 +1,6 @@
 import type {
   PersistedSessionInfo,
+  SessionRoute,
   SessionActionKind,
   SessionActionToken,
 } from "./types";
@@ -128,5 +129,24 @@ export class SessionInteractionService {
     return [options.map((option, index) => (
       this.makeActionButton(sessionId, "question-answer", option.label, { optionIndex: index })
     ))];
+  }
+
+  getMonitorReportButtons(args: {
+    reportId: string;
+    route: SessionRoute;
+    planName: string;
+    planPrompt: string;
+    planWorkdir: string;
+  }): NotificationButton[][] {
+    const { reportId, route, planName, planPrompt, planWorkdir } = args;
+    return [[
+      this.makeActionButton(reportId, "monitor-start-plan", "Start Plan", {
+        route,
+        launchName: planName,
+        launchPrompt: planPrompt,
+        launchWorkdir: planWorkdir,
+      }),
+      this.makeActionButton(reportId, "monitor-dismiss", "Dismiss", { route }),
+    ]];
   }
 }

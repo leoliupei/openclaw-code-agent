@@ -197,6 +197,8 @@ export type SessionActionKind =
   | "plan-approve"
   | "plan-request-changes"
   | "plan-reject"
+  | "monitor-start-plan"
+  | "monitor-dismiss"
   | "worktree-merge"
   | "worktree-create-pr"
   | "worktree-update-pr"
@@ -227,6 +229,10 @@ export interface SessionActionToken {
   optionIndex?: number;
   label?: string;
   targetUrl?: string;
+  route?: SessionRoute;
+  launchName?: string;
+  launchPrompt?: string;
+  launchWorkdir?: string;
 }
 
 /** Harness-scoped launch defaults and model restrictions. */
