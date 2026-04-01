@@ -24,46 +24,7 @@ import { SessionManager } from "./src/session-manager";
 import { setSessionManager } from "./src/singletons";
 import { setPluginRuntime } from "./src/runtime-store";
 import { setPluginConfig, pluginConfig } from "./src/config";
-import type { OpenClawPluginToolContext, PluginConfig } from "./src/types";
-
-interface OpenClawCommandApi {
-  registerCommand(config: {
-    name: string;
-    description: string;
-    acceptsArgs: boolean;
-    requireAuth: boolean;
-    handler: (...args: unknown[]) => unknown;
-  }): void;
-}
-
-interface OpenClawServiceApi {
-  registerService(config: {
-    id: string;
-    start: (ctx: { config?: unknown; logger?: { warn: (message: string) => void; error: (message: string) => void } }) => void;
-    stop: (ctx: { config?: unknown; logger?: { warn: (message: string) => void; error: (message: string) => void } }) => void;
-  }): void;
-}
-
-interface OpenClawToolApi {
-  registerTool(
-    factory: (ctx: OpenClawPluginToolContext) => unknown,
-    options?: { optional?: boolean },
-  ): void;
-}
-
-interface OpenClawInteractiveApi {
-  registerInteractiveHandler(registration: {
-    channel: "telegram" | "discord";
-    namespace: string;
-    handler: (ctx: unknown) => Promise<{ handled?: boolean } | void> | ({ handled?: boolean } | void);
-  }): void;
-}
-
-interface OpenClawPluginApi extends OpenClawCommandApi, OpenClawServiceApi, OpenClawToolApi, OpenClawInteractiveApi {
-  pluginConfig?: Partial<PluginConfig>;
-  getConfig?: () => Partial<PluginConfig> | undefined;
-  runtime?: unknown;
-}
+import { definePluginEntry, type OpenClawPluginApi, type OpenClawPluginToolContext } from "./api";
 
 /**
  * A1 — Startup orphan cleanup: scan worktree base dir(s) for old worktrees and clean them up.
@@ -145,20 +106,24 @@ function cleanupOrphanedWorktrees(sm: SessionManager): void {
 export function register(api: OpenClawPluginApi): void {
   let sm: SessionManager | null = null;
   let cleanupInterval: ReturnType<typeof setInterval> | null = null;
+  const registerTool = api.registerTool as (
+    tool: (ctx: OpenClawPluginToolContext) => unknown,
+    options?: { optional?: boolean },
+  ) => void;
   setPluginRuntime(api.runtime);
 
   // Tools
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentLaunchTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentSessionsTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentKillTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentOutputTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentRespondTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentRequestPlanApprovalTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentStatsTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentMergeTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentPrTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeCleanupTool(ctx), { optional: false });
-  api.registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeStatusTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentLaunchTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentSessionsTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentKillTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentOutputTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentRespondTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentRequestPlanApprovalTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentStatsTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentMergeTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentPrTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeCleanupTool(ctx), { optional: false });
+  registerTool((ctx: OpenClawPluginToolContext) => makeAgentWorktreeStatusTool(ctx), { optional: false });
 
   // Interactive handlers (shared action-token callbacks across chat transports)
   api.registerInteractiveHandler(createCallbackHandler("telegram"));
@@ -176,7 +141,7 @@ export function register(api: OpenClawPluginApi): void {
   api.registerService({
     id: "openclaw-code-agent",
     start: (ctx) => {
-      const config = api.pluginConfig ?? api.getConfig?.() ?? {};
+      const config = api.pluginConfig ?? {};
       setPluginConfig(config);
       setPluginRuntime(api.runtime);
 
@@ -200,3 +165,10 @@ export function register(api: OpenClawPluginApi): void {
     },
   });
 }
+
+export default definePluginEntry({
+  id: "openclaw-code-agent",
+  name: "OpenClaw Code Agent",
+  description: "Multi-session coding-agent orchestration from OpenClaw chat",
+  register,
+});

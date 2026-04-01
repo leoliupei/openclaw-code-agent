@@ -4,23 +4,17 @@ import { makeAgentMergeTool } from "./tools/agent-merge";
 import { makeAgentPrTool } from "./tools/agent-pr";
 import { makeAgentOutputTool } from "./tools/agent-output";
 import { CALLBACK_NAMESPACE } from "./interactive-constants";
+import type {
+  PluginInteractiveDiscordHandlerContext,
+  PluginInteractiveDiscordHandlerResult,
+  PluginInteractiveTelegramHandlerContext,
+  PluginInteractiveTelegramHandlerResult,
+} from "../api";
 import type { PersistedSessionInfo, SessionActionKind, SessionActionToken } from "./types";
 
-/**
- * Minimal Telegram callback handler context (mirrors OpenClaw's
- * PluginInteractiveTelegramHandlerContext — no import from OpenClaw internals needed).
- */
-interface TelegramCallbackContext {
-  auth: { isAuthorizedSender: boolean };
-  callback: { payload: string };
-  respond: {
-    reply: (params: { text: string }) => Promise<void>;
-    clearButtons: () => Promise<void>;
-    editMessage?: (params: { text: string; buttons?: Array<Array<{ label: string; callbackData: string }>> }) => Promise<void>;
-  };
-}
-
 type InteractiveChannel = "telegram" | "discord";
+type InteractiveCallbackContext = PluginInteractiveTelegramHandlerContext | PluginInteractiveDiscordHandlerContext;
+type InteractiveHandlerResult = PluginInteractiveTelegramHandlerResult | PluginInteractiveDiscordHandlerResult;
 
 type PlanDecisionTarget = Pick<
   PersistedSessionInfo,
@@ -33,21 +27,23 @@ function parsePayload(payload: string): string | null {
 }
 
 async function resolveWorktreePrompt(
-  ctx: TelegramCallbackContext,
+  ctx: InteractiveCallbackContext,
   text: string,
 ): Promise<void> {
-  if (typeof ctx.respond.editMessage === "function") {
-    try {
+  try {
+    if (ctx.channel === "telegram") {
       await ctx.respond.editMessage({ text, buttons: [] });
       return;
-    } catch (err) {
-      const errText = err instanceof Error ? err.message : String(err);
-      if (!/message is not modified/i.test(errText)) {
-        console.warn(`[callback-handler] Failed to edit worktree prompt: ${errText}`);
-      }
+    }
+    await ctx.respond.clearComponents({ text });
+    return;
+  } catch (err) {
+    const errText = err instanceof Error ? err.message : String(err);
+    if (!/message is not modified/i.test(errText)) {
+      console.warn(`[callback-handler] Failed to edit worktree prompt: ${errText}`);
     }
   }
-  await ctx.respond.clearButtons();
+  await clearInteractiveState(ctx);
 }
 
 /** Extract text from a tool execute result content array. */
@@ -98,6 +94,26 @@ function validatePlanDecisionToken(
   return undefined;
 }
 
+function getPayload(ctx: InteractiveCallbackContext): string {
+  return ctx.channel === "telegram" ? ctx.callback.payload : ctx.interaction.payload;
+}
+
+async function clearInteractiveState(ctx: InteractiveCallbackContext): Promise<void> {
+  if (ctx.channel === "telegram") {
+    await ctx.respond.clearButtons();
+    return;
+  }
+  await ctx.respond.clearComponents();
+}
+
+async function replyText(ctx: InteractiveCallbackContext, text: string): Promise<void> {
+  if (ctx.channel === "telegram") {
+    await ctx.respond.reply({ text });
+    return;
+  }
+  await ctx.respond.reply({ text, ephemeral: true });
+}
+
 /**
  * Create the Telegram interactive handler registration for button callbacks.
  *
@@ -116,30 +132,29 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
   return {
     channel,
     namespace: CALLBACK_NAMESPACE,
-    handler: async (ctx: TelegramCallbackContext): Promise<{ handled?: boolean } | void> => {
+    handler: async (ctx: InteractiveCallbackContext): Promise<InteractiveHandlerResult> => {
       // Authorization check
       if (!ctx.auth.isAuthorizedSender) {
-        await ctx.respond.reply({ text: "⛔ Unauthorized." });
+        await replyText(ctx, "⛔ Unauthorized.");
         return { handled: true };
       }
 
-      const tokenId = parsePayload(ctx.callback.payload);
+      const payload = getPayload(ctx);
+      const tokenId = parsePayload(payload);
       if (!tokenId) {
-        await ctx.respond.reply({
-          text: `⚠️ Unrecognized callback payload: "${ctx.callback.payload}".`,
-        });
+        await replyText(ctx, `⚠️ Unrecognized callback payload: "${payload}".`);
         return { handled: true };
       }
 
       // Guard service initialization
       if (!sessionManager) {
-        await ctx.respond.reply({ text: "⚠️ Code agent service not running." });
+        await replyText(ctx, "⚠️ Code agent service not running.");
         return { handled: true };
       }
 
       const token = sessionManager.getActionToken(tokenId);
       if (!token) {
-        await ctx.respond.reply({ text: "⚠️ This action is stale or has already been used." });
+        await replyText(ctx, "⚠️ This action is stale or has already been used.");
         return { handled: true };
       }
 
@@ -149,14 +164,14 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
       const invalidPlanDecision = validatePlanDecisionToken(token, actionSession);
 
       if (invalidPlanDecision) {
-        await ctx.respond.clearButtons();
-        await ctx.respond.reply({ text: `⚠️ ${invalidPlanDecision}` });
+        await clearInteractiveState(ctx);
+        await replyText(ctx, `⚠️ ${invalidPlanDecision}`);
         return { handled: true };
       }
 
       const consumedToken = sessionManager.consumeActionToken(tokenId);
       if (!consumedToken) {
-        await ctx.respond.reply({ text: "⚠️ This action is stale or has already been used." });
+        await replyText(ctx, "⚠️ This action is stale or has already been used.");
         return { handled: true };
       }
 
@@ -165,21 +180,21 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
         case "worktree-merge": {
           await resolveWorktreePrompt(ctx, `✅ Merge selected for [${actionSessionName}]`);
           const result = await makeAgentMergeTool().execute("callback", { session: sessionId });
-          await ctx.respond.reply({ text: toolResultText(result) });
+          await replyText(ctx, toolResultText(result));
           break;
         }
 
         case "worktree-decide-later": {
           await resolveWorktreePrompt(ctx, `⏭️ Deferred for [${actionSessionName}]`);
           const result = sessionManager.snoozeWorktreeDecision(sessionId);
-          await ctx.respond.reply({ text: result.startsWith("Error") ? result : "⏭️ Snoozed 24h" });
+          await replyText(ctx, result.startsWith("Error") ? result : "⏭️ Snoozed 24h");
           break;
         }
 
         case "worktree-dismiss": {
           await resolveWorktreePrompt(ctx, `🗑️ Discarded for [${actionSessionName}]`);
           const result = await sessionManager.dismissWorktree(sessionId);
-          await ctx.respond.reply({ text: result.startsWith("Error") ? result : result });
+          await replyText(ctx, result.startsWith("Error") ? result : result);
           break;
         }
 
@@ -199,20 +214,20 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
           // on success; if the PR creation fails the flag remains set so reminders
           // continue until the user tries again.
           const result = await makeAgentPrTool().execute("callback", { session: sessionId });
-          await ctx.respond.reply({ text: toolResultText(result) });
+          await replyText(ctx, toolResultText(result));
           break;
         }
 
         case "worktree-view-pr": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           const persisted = sessionManager.getPersistedSession?.(sessionId);
           const url = token.targetUrl ?? persisted?.worktreePrUrl;
-          await ctx.respond.reply({ text: url ? `PR: ${url}` : "⚠️ PR URL is no longer available." });
+          await replyText(ctx, url ? `PR: ${url}` : "⚠️ PR URL is no longer available.");
           break;
         }
 
         case "plan-approve": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           sessionManager.clearPlanDecisionTokens(sessionId);
           const result = await executeRespond(sessionManager, {
             session: sessionId,
@@ -221,19 +236,19 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
             userInitiated: true,
           });
           if (result.isError) {
-            await ctx.respond.reply({ text: `⚠️ ${result.text}` });
+            await replyText(ctx, `⚠️ ${result.text}`);
           }
           break;
         }
 
         case "plan-reject": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           sessionManager.clearPlanDecisionTokens(sessionId);
           const active = sessionManager.resolve(sessionId);
           if (active) {
             active.approvalState = "rejected";
             sessionManager.kill(active.id, "user");
-            await ctx.respond.reply({ text: `❌ Plan rejected for [${active.name}]. Session stopped.` });
+            await replyText(ctx, `❌ Plan rejected for [${active.name}]. Session stopped.`);
           } else {
             const persisted = sessionManager.getPersistedSession?.(sessionId);
             if (persisted) {
@@ -244,18 +259,16 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
                 planApprovalContext: undefined,
                 planDecisionVersion: (persisted.planDecisionVersion ?? 0) + 1,
               });
-              await ctx.respond.reply({
-                text: `❌ Plan rejected for [${persisted.name ?? actionSessionName}]. Session remains stopped.`,
-              });
+              await replyText(ctx, `❌ Plan rejected for [${persisted.name ?? actionSessionName}]. Session remains stopped.`);
             } else {
-              await ctx.respond.reply({ text: `❌ Plan rejected.` });
+              await replyText(ctx, `❌ Plan rejected.`);
             }
           }
           break;
         }
 
         case "plan-request-changes": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           const reviseSession = sessionManager.resolve?.(sessionId);
           const revisePersisted = sessionManager.getPersistedSession?.(sessionId);
           const reviseName = reviseSession?.name ?? revisePersisted?.name ?? sessionId;
@@ -271,47 +284,43 @@ export function createCallbackHandler(channel: InteractiveChannel = "telegram") 
             approvalPromptVersion: undefined,
             approvalPromptStatus: "not_sent",
           });
-          await ctx.respond.reply({
-            text: `✏️ Type your revision feedback for [${reviseName}] and I'll forward it to the agent.`,
-          });
+          await replyText(ctx, `✏️ Type your revision feedback for [${reviseName}] and I'll forward it to the agent.`);
           break;
         }
 
         case "session-restart":
         case "session-resume": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           const result = await executeRespond(sessionManager, {
             session: sessionId,
             message: "Continue where you left off.",
             userInitiated: true,
           });
-          await ctx.respond.reply({ text: result.isError ? `⚠️ ${result.text}` : `▶️ ${result.text}` });
+          await replyText(ctx, result.isError ? `⚠️ ${result.text}` : `▶️ ${result.text}`);
           break;
         }
 
         case "view-output": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           const result = await makeAgentOutputTool().execute("callback", { session: sessionId, lines: 50 });
-          await ctx.respond.reply({ text: toolResultText(result) });
+          await replyText(ctx, toolResultText(result));
           break;
         }
 
         case "question-answer": {
-          await ctx.respond.clearButtons();
+          await clearInteractiveState(ctx);
           if (token.optionIndex == null) {
-            await ctx.respond.reply({ text: `⚠️ Invalid question-answer action.` });
+            await replyText(ctx, `⚠️ Invalid question-answer action.`);
             break;
           }
           await sessionManager.resolvePendingInputOption(sessionId, token.optionIndex);
-          await ctx.respond.reply({ text: `✅ Answer submitted.` });
+          await replyText(ctx, `✅ Answer submitted.`);
           break;
         }
 
         default: {
-          await ctx.respond.clearButtons();
-          await ctx.respond.reply({
-            text: `⚠️ Unknown callback action.`,
-          });
+          await clearInteractiveState(ctx);
+          await replyText(ctx, `⚠️ Unknown callback action.`);
           break;
         }
       }

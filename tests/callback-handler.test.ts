@@ -4,24 +4,48 @@ import { createCallbackHandler } from "../src/callback-handler";
 import { setSessionManager } from "../src/singletons";
 import { createStubSession } from "./helpers";
 
-function createCtx(payload: string) {
+function createCtx(payload: string, channel: "telegram" | "discord" = "telegram") {
   const replies: string[] = [];
   const editedMessages: string[] = [];
   let buttonsCleared = 0;
+  let componentsCleared = 0;
+  const ctx = channel === "telegram"
+    ? {
+        channel,
+        auth: { isAuthorizedSender: true },
+        callback: { payload },
+        respond: {
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+          clearButtons: async () => { buttonsCleared++; },
+          editMessage: async ({ text }: { text: string }) => { editedMessages.push(text); },
+        },
+      }
+    : {
+        channel,
+        auth: { isAuthorizedSender: true },
+        interaction: { payload },
+        respond: {
+          acknowledge: async () => {},
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+          followUp: async ({ text }: { text: string }) => { replies.push(text); },
+          editMessage: async ({ text }: { text?: string }) => {
+            if (typeof text === "string") editedMessages.push(text);
+          },
+          clearComponents: async ({ text }: { text?: string } = {}) => {
+            componentsCleared++;
+            if (typeof text === "string") editedMessages.push(text);
+          },
+        },
+      };
   return {
-    ctx: {
-      auth: { isAuthorizedSender: true },
-      callback: { payload },
-      respond: {
-        reply: async ({ text }: { text: string }) => { replies.push(text); },
-        clearButtons: async () => { buttonsCleared++; },
-        editMessage: async ({ text }: { text: string }) => { editedMessages.push(text); },
-      },
-    },
+    ctx,
     replies,
     editedMessages,
     get buttonsCleared() {
       return buttonsCleared;
+    },
+    get componentsCleared() {
+      return componentsCleared;
     },
   };
 }
@@ -260,11 +284,12 @@ describe("createCallbackHandler()", () => {
     } as any);
 
     const handler = createCallbackHandler("discord");
-    const state = createCtx("discord-token");
+    const state = createCtx("discord-token", "discord");
     const result = await handler.handler(state.ctx as any);
 
     assert.equal(handler.channel, "discord");
     assert.deepEqual(result, { handled: true });
+    assert.equal(state.componentsCleared, 1);
     assert.equal(state.replies[0], "PR: https://github.com/example/repo/pull/999");
   });
 });
