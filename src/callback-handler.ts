@@ -37,28 +37,12 @@ async function resolveWorktreePrompt(
   ctx: InteractiveCallbackContext,
   text: string,
 ): Promise<void> {
-  const responder = ctx.respond as InteractiveResponder;
   try {
-    if (ctx.channel === "telegram" && typeof responder.editMessage === "function") {
-      await responder.editMessage({ text, buttons: [] });
-      return;
-    }
-    if (typeof responder.clearComponents === "function") {
-      await responder.clearComponents({ text });
-      return;
-    }
-    if (typeof responder.editMessage === "function") {
-      await responder.editMessage({ text });
-      await clearInteractiveState(ctx);
-      return;
-    }
+    await clearInteractiveState(ctx, { text });
   } catch (err) {
     const errText = err instanceof Error ? err.message : String(err);
-    if (!/message is not modified/i.test(errText)) {
-      console.warn(`[callback-handler] Failed to edit worktree prompt: ${errText}`);
-    }
+    console.warn(`[callback-handler] Failed to resolve worktree prompt: ${errText}`);
   }
-  await clearInteractiveState(ctx);
 }
 
 /** Extract text from a tool execute result content array. */
@@ -115,32 +99,75 @@ function getPayload(ctx: InteractiveCallbackContext): string {
   return callbackPayload ?? interactionPayload ?? "";
 }
 
+function isMessageNotModifiedError(err: unknown): boolean {
+  const errText = err instanceof Error ? err.message : String(err);
+  return /message is not modified/i.test(errText);
+}
+
 function isDiscordEmptyMessageError(err: unknown): boolean {
   const errText = err instanceof Error ? err.message : String(err);
   return /empty message/i.test(errText);
 }
 
-async function clearInteractiveState(ctx: InteractiveCallbackContext): Promise<void> {
+async function clearInteractiveState(
+  ctx: InteractiveCallbackContext,
+  options: { text?: string } = {},
+): Promise<void> {
   const responder = ctx.respond as InteractiveResponder;
-  if (ctx.channel === "telegram" && typeof responder.clearButtons === "function") {
-    await responder.clearButtons();
+  const { text } = options;
+
+  if (ctx.channel === "telegram") {
+    if (typeof text === "string" && typeof responder.editMessage === "function") {
+      try {
+        await responder.editMessage({ text, buttons: [] });
+        return;
+      } catch (err) {
+        if (isMessageNotModifiedError(err)) return;
+        const errText = err instanceof Error ? err.message : String(err);
+        console.warn(`[callback-handler] Failed to edit Telegram worktree prompt before clearing buttons: ${errText}`);
+      }
+    }
+    if (typeof responder.clearButtons === "function") {
+      await responder.clearButtons();
+    }
     return;
   }
+
   if (typeof responder.clearComponents === "function") {
     try {
-      await responder.clearComponents();
+      await responder.clearComponents(typeof text === "string" ? { text } : undefined);
       return;
     } catch (err) {
-      if (!isDiscordEmptyMessageError(err)) {
+      if (isMessageNotModifiedError(err)) return;
+
+      if (isDiscordEmptyMessageError(err)) {
+        if (typeof text !== "string" && typeof responder.acknowledge === "function") {
+          await responder.acknowledge();
+          return;
+        }
+        if (typeof text !== "string" && typeof responder.acknowledge !== "function") {
+          console.warn("[callback-handler] clearComponents failed with empty-message error and no acknowledge fallback available");
+        }
+      } else if (typeof text !== "string") {
         throw err;
+      } else {
+        const errText = err instanceof Error ? err.message : String(err);
+        console.warn(`[callback-handler] clearComponents failed before text fallback: ${errText}`);
       }
-      if (typeof responder.acknowledge === "function") {
-        await responder.acknowledge();
-        return;
-      }
-      console.warn("[callback-handler] clearComponents failed with empty-message error and no acknowledge fallback available");
     }
   }
+
+  if (typeof text === "string" && typeof responder.editMessage === "function") {
+    try {
+      await responder.editMessage({ text });
+    } catch (err) {
+      if (!isMessageNotModifiedError(err)) {
+        const errText = err instanceof Error ? err.message : String(err);
+        console.warn(`[callback-handler] Failed to edit worktree prompt before clearing interactive state: ${errText}`);
+      }
+    }
+  }
+
   if (typeof responder.clearButtons === "function") {
     await responder.clearButtons();
   }

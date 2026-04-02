@@ -409,6 +409,50 @@ describe("createCallbackHandler()", () => {
     assert.equal(state.replies[0], "⏭️ Snoozed 24h");
   });
 
+  it("falls back to clearing Telegram buttons when worktree prompt edit fails", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => { warnings.push(String(message)); };
+
+    try {
+      setSessionManager({
+        getActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        resolve: () => undefined,
+        getPersistedSession: () => ({ name: "ux-fix" }),
+        snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+      } as any);
+
+      const replies: string[] = [];
+      let buttonsCleared = 0;
+      const ctx = {
+        channel: "telegram" as const,
+        auth: { isAuthorizedSender: true },
+        callback: { payload: "token-snooze" },
+        respond: {
+          editMessage: async () => {
+            throw new Error("telegram edit failed");
+          },
+          clearButtons: async () => { buttonsCleared++; },
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+        },
+      };
+
+      const handler = createCallbackHandler();
+      const result = await handler.handler(ctx as any);
+
+      assert.deepEqual(result, { handled: true });
+      assert.equal(buttonsCleared, 1);
+      assert.equal(replies[0], "⏭️ Snoozed 24h");
+      assert.match(
+        warnings[0],
+        /Failed to edit Telegram worktree prompt before clearing buttons: telegram edit failed/,
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it("updates Discord worktree prompts when only clearButtons is available", async () => {
     const warnings: string[] = [];
     const originalWarn = console.warn;
@@ -445,6 +489,173 @@ describe("createCallbackHandler()", () => {
       assert.equal(buttonsCleared, 1);
       assert.equal(replies[0], "⏭️ Snoozed 24h");
       assert.deepEqual(warnings, []);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("falls back to clearing Discord buttons when clearComponents worktree resolution fails", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => { warnings.push(String(message)); };
+
+    try {
+      setSessionManager({
+        getActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        resolve: () => undefined,
+        getPersistedSession: () => ({ name: "ux-fix" }),
+        snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+      } as any);
+
+      const replies: string[] = [];
+      let buttonsCleared = 0;
+      const ctx = {
+        channel: "discord" as const,
+        auth: { isAuthorizedSender: true },
+        callback: { payload: "token-snooze" },
+        respond: {
+          clearComponents: async () => {
+            throw new Error("clearComponents failed");
+          },
+          clearButtons: async () => { buttonsCleared++; },
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+        },
+      };
+
+      const handler = createCallbackHandler("discord");
+      const result = await handler.handler(ctx as any);
+
+      assert.deepEqual(result, { handled: true });
+      assert.equal(buttonsCleared, 1);
+      assert.equal(replies[0], "⏭️ Snoozed 24h");
+      assert.match(warnings[0], /clearComponents failed before text fallback: clearComponents failed/);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("clears Discord worktree prompts when editMessage reports message is not modified", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => { warnings.push(String(message)); };
+
+    try {
+      setSessionManager({
+        getActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        resolve: () => undefined,
+        getPersistedSession: () => ({ name: "ux-fix" }),
+        snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+      } as any);
+
+      const replies: string[] = [];
+      let buttonsCleared = 0;
+      const ctx = {
+        channel: "discord" as const,
+        auth: { isAuthorizedSender: true },
+        callback: { payload: "token-snooze" },
+        respond: {
+          editMessage: async () => {
+            throw new Error("Message is not modified");
+          },
+          clearButtons: async () => { buttonsCleared++; },
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+        },
+      };
+
+      const handler = createCallbackHandler("discord");
+      const result = await handler.handler(ctx as any);
+
+      assert.deepEqual(result, { handled: true });
+      assert.equal(buttonsCleared, 1);
+      assert.equal(replies[0], "⏭️ Snoozed 24h");
+      assert.deepEqual(warnings, []);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("clears Discord worktree prompts when editMessage throws before buttons are cleared", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => { warnings.push(String(message)); };
+
+    try {
+      setSessionManager({
+        getActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        resolve: () => undefined,
+        getPersistedSession: () => ({ name: "ux-fix" }),
+        snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+      } as any);
+
+      const replies: string[] = [];
+      let buttonsCleared = 0;
+      const ctx = {
+        channel: "discord" as const,
+        auth: { isAuthorizedSender: true },
+        callback: { payload: "token-snooze" },
+        respond: {
+          editMessage: async () => {
+            throw new Error("edit failed");
+          },
+          clearButtons: async () => { buttonsCleared++; },
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+        },
+      };
+
+      const handler = createCallbackHandler("discord");
+      const result = await handler.handler(ctx as any);
+
+      assert.deepEqual(result, { handled: true });
+      assert.equal(buttonsCleared, 1);
+      assert.equal(replies[0], "⏭️ Snoozed 24h");
+      assert.match(warnings[0], /Failed to edit worktree prompt before clearing interactive state: edit failed/);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it("does not retry Discord worktree prompt cleanup after a post-edit clear failure", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (message?: unknown) => { warnings.push(String(message)); };
+
+    try {
+      setSessionManager({
+        getActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        consumeActionToken: () => ({ sessionId: "sess-42", kind: "worktree-decide-later" }),
+        resolve: () => undefined,
+        getPersistedSession: () => ({ name: "ux-fix" }),
+        snoozeWorktreeDecision: () => "⏭️ Reminder snoozed 24h for `agent/ux-fix` (session: ux-fix)",
+      } as any);
+
+      const replies: string[] = [];
+      const editedMessages: string[] = [];
+      let clearAttempts = 0;
+      const ctx = {
+        channel: "discord" as const,
+        auth: { isAuthorizedSender: true },
+        callback: { payload: "token-snooze" },
+        respond: {
+          editMessage: async ({ text }: { text: string }) => { editedMessages.push(text); },
+          clearButtons: async () => {
+            clearAttempts++;
+            throw new Error("clear failed");
+          },
+          reply: async ({ text }: { text: string }) => { replies.push(text); },
+        },
+      };
+
+      const handler = createCallbackHandler("discord");
+      const result = await handler.handler(ctx as any);
+
+      assert.deepEqual(result, { handled: true });
+      assert.deepEqual(editedMessages, ["⏭️ Deferred for [ux-fix]"]);
+      assert.equal(clearAttempts, 1);
+      assert.equal(replies[0], "⏭️ Snoozed 24h");
+      assert.match(warnings[0], /Failed to resolve worktree prompt: clear failed/);
     } finally {
       console.warn = originalWarn;
     }
