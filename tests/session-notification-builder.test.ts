@@ -150,9 +150,14 @@ describe("session-notification-builder", () => {
         status: "completed",
         costUsd: 1.25,
         duration: 61_000,
+        approvalState: "approved",
         requestedPermissionMode: "plan",
         currentPermissionMode: "bypassPermissions",
         approvalExecutionState: "approved_then_implemented",
+        planApproval: "ask",
+        approvalPromptStatus: "delivered",
+        approvalPromptMessageKind: "canonical_buttons",
+        approvalPromptDeliveredAt: "2026-04-10T07:43:13.161Z",
       } as any,
       originThreadLine: "Origin thread: telegram topic 42",
       preview: "Final output",
@@ -165,6 +170,8 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessageOnNotifySuccess, /Requested permission mode: plan/);
     assert.match(payload.wakeMessageOnNotifySuccess, /Effective permission mode: bypassPermissions/);
     assert.match(payload.wakeMessageOnNotifySuccess, /Deterministic approval\/execution state: approved_then_implemented/);
+    assert.match(payload.wakeMessageOnNotifySuccess, /canonical Approve\/Revise\/Reject buttons were delivered/i);
+    assert.match(payload.wakeMessageOnNotifySuccess, /implementation after approval was expected/i);
     assert.match(payload.wakeMessageOnNotifySuccess, /Output preview:/);
     assert.match(payload.wakeMessageOnNotifySuccess, /Canonical completion status delivered to user: yes/);
     assert.match(payload.wakeMessageOnNotifySuccess, /Plugin requested short factual follow-up summary: yes/);
@@ -176,6 +183,33 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessageOnNotifyFailed, /do NOT assume the plugin already reached the user/i);
   });
 
+  it("includes fallback approval interpretation when approval was recorded without canonical buttons", () => {
+    const payload = buildCompletedPayload({
+      session: {
+        id: "session-3",
+        name: "approved-no-buttons",
+        status: "completed",
+        costUsd: 0.5,
+        duration: 30_000,
+        approvalState: "approved",
+        requestedPermissionMode: "plan",
+        currentPermissionMode: "bypassPermissions",
+        approvalExecutionState: "approved_then_implemented",
+        planApproval: "delegate",
+        approvalPromptStatus: "not_sent",
+        approvalPromptMessageKind: "none",
+        approvalPromptDeliveredAt: undefined,
+      } as any,
+      originThreadLine: "Origin thread: telegram topic 10",
+      preview: "Output",
+    });
+
+    assert.match(
+      payload.wakeMessageOnNotifySuccess,
+      /explicit plan approval was recorded before implementation/i,
+    );
+  });
+
   it("uses agent_respond as the primary continuation path in failure wakes", () => {
     const payload = buildFailedPayload({
       session: {
@@ -185,6 +219,7 @@ describe("session-notification-builder", () => {
         costUsd: 0,
         duration: 10_000,
         harnessSessionId: "backend-thread-1",
+        approvalState: "not_required",
         requestedPermissionMode: "plan",
         currentPermissionMode: "default",
         approvalExecutionState: "implemented_without_required_approval",
@@ -199,6 +234,7 @@ describe("session-notification-builder", () => {
     assert.match(payload.wakeMessage, /agent_launch\(resume_session_id='session-2', fork_session=true/);
     assert.match(payload.wakeMessage, /Backend conversation ID: backend-thread-1/);
     assert.match(payload.wakeMessage, /Deterministic approval\/execution state: implemented_without_required_approval/);
+    assert.match(payload.wakeMessage, /implementation left plan-only mode without a recorded approval/i);
   });
 
   it("preserves delegate worktree wake instructions", () => {
@@ -228,20 +264,46 @@ describe("session-notification-builder", () => {
       cleanupSummary: "worktree cleaned up",
       preview: "Built the project and verified the binary prints hello world.",
       originThreadLine: "Origin thread: telegram topic 42",
+      approvalState: "approved",
       requestedPermissionMode: "plan",
       currentPermissionMode: "bypassPermissions",
       approvalExecutionState: "approved_then_implemented",
+      planApproval: "ask",
+      approvalPromptStatus: "delivered",
+      approvalPromptMessageKind: "canonical_buttons",
+      approvalPromptDeliveredAt: "2026-04-10T07:43:13.161Z",
     });
 
     assert.match(message, /completed with no repository changes/);
     assert.match(message, /Worktree outcome: worktree cleaned up/);
     assert.match(message, /Requested permission mode: plan/);
     assert.match(message, /Deterministic approval\/execution state: approved_then_implemented/);
+    assert.match(message, /canonical Approve\/Revise\/Reject buttons were delivered/i);
+    assert.match(message, /implementation after approval was expected/i);
     assert.match(message, /Output preview:/);
     assert.match(message, /agent_output\(session='session-4', full=true\)/);
     assert.match(message, /plugin already sent the canonical completion status/i);
     assert.match(message, /must send the user a short factual completion summary/i);
     assert.match(message, /ordinary terminal\/manual completions too/i);
     assert.match(message, /do NOT repeat the plugin's status line/i);
+  });
+
+  it("includes fallback approval interpretation in no-change worktree wakes without canonical buttons", () => {
+    const message = buildNoChangeWakeMessage({
+      sessionName: "rust-hello-world",
+      sessionId: "session-5",
+      cleanupSummary: "worktree cleaned up",
+      preview: "",
+      approvalState: "approved",
+      requestedPermissionMode: "plan",
+      currentPermissionMode: "bypassPermissions",
+      approvalExecutionState: "approved_then_implemented",
+      planApproval: "delegate",
+      approvalPromptStatus: "not_sent",
+      approvalPromptMessageKind: "none",
+      approvalPromptDeliveredAt: undefined,
+    });
+
+    assert.match(message, /explicit plan approval was recorded before implementation/i);
   });
 });
