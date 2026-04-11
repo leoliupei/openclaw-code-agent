@@ -10,6 +10,7 @@ pnpm verify
 ```
 
 Build output is the ESM bundle at `dist/index.js`.
+`pnpm-lock.yaml` is the only committed JavaScript lockfile in this repo. Do not add `package-lock.json`; npm is only used for `npm publish` in release, while install, CI, and dependency resolution are all pnpm-based.
 
 ## Repository Layout
 
@@ -62,6 +63,25 @@ pnpm verify
 ```
 
 Use `pnpm verify` before merging behavior changes. CI and release workflows both gate on that exact command. `pnpm test` runs the stable per-file suite without force-exit, and `pnpm test:file tests/foo.test.ts` is the fastest way to rerun one file while debugging orchestration edge cases.
+
+## Security And Audits
+
+Use the repo's pnpm toolchain for dependency checks:
+
+```bash
+pnpm run audit:prod
+```
+
+Do not use `npm audit` here. npm audit expects an npm lockfile and fails with `ENOLOCK` when the repo only commits `pnpm-lock.yaml`.
+
+Security automation should work like this:
+
+- PR gating: GitHub Dependency Review checks dependency diffs in pull requests and works with `pnpm-lock.yaml`.
+- Runtime/package gate: `pnpm run audit:prod` audits the published dependency set in CI without introducing a second lockfile.
+- Version maintenance: Dependabot updates the JavaScript dependency set through the npm ecosystem support that covers pnpm projects.
+- Full snapshot audit: run `pnpm audit` when you need the current advisory set for the full resolved pnpm graph, including dev dependencies.
+
+This repo currently has dev-only transitive advisories coming from upstream dependencies, so a blanket failing `pnpm audit` step is not the right merge gate until those findings are either remediated upstream or intentionally allowlisted with pnpm audit configuration.
 
 For release preparation, also validate metadata parity explicitly:
 
