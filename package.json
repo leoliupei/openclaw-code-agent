@@ -17,6 +17,7 @@
     "verify": "pnpm typecheck && pnpm build && pnpm test"
   },
   "openclaw": {
+    "hooks": [],
     "extensions": [
       "./dist/index.js"
     ]
