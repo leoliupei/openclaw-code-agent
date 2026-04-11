@@ -9,25 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.2.0] - 2026-04-10
 
+### Added
+
+- One-attempt autonomous conflict resolution for `auto-merge`, followed by an automatic merge retry when the resolver succeeds.
+- Lifecycle-first worktree resolution that can promote landed-but-not-topology-merged branches to `released` for safe cleanup and clearer status reporting.
+- Shared release metadata validation so `package.json`, `openclaw.plugin.json`, and the intended release version are checked together before publish.
+
 ### Changed
 
 - Returned ordinary successful terminal notifications to deterministic completion messaging only; the plugin no longer generates transcript-based completion summaries for users or wakes.
 - Removed the remaining plugin-side no-change/report-only embedded-eval path so worktree completion messaging is fully deterministic.
 - Changed the default `defaultWorktreeStrategy` back to `off`.
 - Completion wakes now include explicit approval/execution context plus both requested and effective permission modes for plan-gated sessions instead of expecting the orchestrator to infer approval from transcript prose.
-- Worktree status and cleanup are now lifecycle-first and repository-evidence-driven, including explicit `released` resolution, retained reasons, and deterministic clean-all-safe behavior.
-- Simplified worktree transition handling around shared pending-decision, conflict-resolving, and merged patch builders.
-- Standardized contributor and release validation around `pnpm verify` and removed the npm lockfile from the repo.
+- Simplified worktree transition handling around shared pending-decision, conflict-resolving, and merged patch builders, and grouped live-session patch application around clearer control-state and worktree metadata boundaries.
+- Standardized contributor and release validation around `pnpm verify`, removed the npm lockfile from the repo, and documented the new release metadata parity check.
 
 ### Fixed
 
 - Normalized bare numeric Discord route targets to `channel:<id>` consistently across route/session-key handling and documentation.
 - Preserved the dirty-worktree implicit-cleanup guard while removing the unshipped heuristic completion-summary behavior.
 - Persisted deterministic approval/execution state so approved plan sessions now surface as `approved_then_implemented`, and plan-gate violations surface as `implemented_without_required_approval`, across terminal and no-change worktree completion paths.
-- `auto-merge` now performs one autonomous conflict-resolution attempt and retries automatically instead of falling through a dead resolver path.
+- Fixed `auto-merge` so conflict handling now follows the real resolver path instead of falling through a dead code branch.
 - Worktree free-space checks now probe the nearest existing ancestor of the configured base dir, so first-run and custom-dir launches validate the correct filesystem.
-- Grouped live-session patch application to keep control-state, metadata, and worktree sync behavior consistent, including explicit auto-merge field clears.
 - Cross-repo PR auto-targeting now works when only `upstream` is configured.
+- Release automation now rejects package/plugin version drift instead of validating only `package.json`.
+
+### Docs
+
+- Reframed the README, operator reference, and contributor docs around the concrete `3.2.0` improvements so the release story, upgrade notes, and release checklist all match the shipped behavior.
 
 ## [3.1.0] - 2026-03-28
 

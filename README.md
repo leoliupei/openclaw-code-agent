@@ -18,6 +18,16 @@
 
 Need the version-pinned ACP breakdown? See [docs/ACP-COMPARISON.md](docs/ACP-COMPARISON.md).
 
+## New In 3.2.0
+
+`3.2.0` is the release that makes the newer worktree and plan-review model feel reliable enough for daily use.
+
+- **Deterministic completion and approval state**. Terminal notifications and wakes no longer depend on transcript-style summary heuristics, and plan-gated sessions now surface explicit approval/execution state for operators and orchestration logic.
+- **Real auto-merge conflict recovery**. `auto-merge` now gets one autonomous conflict-resolution attempt, then retries the merge automatically before escalating back to a preserved branch or PR path.
+- **Lifecycle-first worktree cleanup**. Worktree status and cleanup now treat `released` as a first-class resolved state, so rebased, squashed, and cherry-picked work can still be identified and cleaned safely.
+- **Safer repository follow-through**. Worktree disk-space validation now checks the correct filesystem on first run and for custom worktree directories, and cross-repo PR auto-targeting now works for upstream-only repos.
+- **Stronger release hygiene**. The repo now standardizes on `pnpm` validation, and release automation validates `package.json`, `openclaw.plugin.json`, and the release version together before publish.
+
 ## From Prompt To Merged Branch
 
 1. Launch a coding session from chat with `/agent ...` or `agent_launch(...)`.
@@ -157,13 +167,13 @@ Prefer fully routable channel strings such as `telegram|123456789` or `telegram|
 
 ### Upgrade Note For 3.2.0
 
-`3.2.0` is a hardening release focused on worktree reliability, conflict-resolution flow cleanup, and release-process consistency.
+If you are upgrading from `3.1.0`, the important behavioral changes are:
 
-- `auto-merge` now supports one autonomous conflict-resolution attempt and retries the merge automatically if that resolver succeeds.
-- Worktree free-space checks now probe the correct filesystem even before `<repo>/.worktrees` exists or when a custom worktree base directory has not been created yet.
-- Cross-repo PR auto-targeting now works for upstream-only repos.
-- Internal worktree lifecycle transitions now use shared patch builders, reducing drift between persisted and live session state.
-- Contributors and release automation use `pnpm verify` as the canonical validation gate, and the repo now standardizes on `pnpm` lockfiles only.
+- `defaultWorktreeStrategy` is back to `off`, so worktree isolation remains opt-in unless you configure it explicitly.
+- `auto-merge` now attempts one autonomous conflict resolution before escalating.
+- Completion wakes and no-change outcomes are deterministic and carry explicit approval/execution state instead of relying on transcript inference.
+- Worktree cleanup is lifecycle-first and can now classify already-landed branches as `released`, which makes `preview_safe` and `clean_safe` more trustworthy after rebase, squash, or cherry-pick flows.
+- Release validation now checks package/plugin version parity in addition to the normal `pnpm verify` gate.
 
 ### Backend Capabilities
 

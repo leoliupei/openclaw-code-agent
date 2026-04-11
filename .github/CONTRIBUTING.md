@@ -27,6 +27,12 @@ pnpm verify
 
 `pnpm verify` is the contributor and release gate. It runs typecheck, build, and the full test suite in the same order CI uses.
 
+For release prep, validate manifest/package version parity too:
+
+```bash
+pnpm run validate:release-metadata -- <version>
+```
+
 ### Individual commands
 
 ```bash
@@ -111,7 +117,7 @@ Releases are handled via the `release.yml` GitHub Actions workflow:
 - **Tag push**: push a `v*` tag (e.g. `v2.3.2`) to trigger an automated release
 - **Manual dispatch**: use the "Release" workflow in the Actions tab and supply the version
 
-The workflow runs the full CI gate (`pnpm verify`), publishes to npm using
+The workflow runs the full CI gate (`pnpm verify`), validates package/plugin version parity against the requested release version, publishes to npm using
 Trusted Publishing (OIDC — no secrets or tokens required), and creates a GitHub release
 with notes extracted from `CHANGELOG.md`.
 
